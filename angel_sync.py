@@ -282,6 +282,9 @@ Go to Streamlit Cloud → your app → Settings → Secrets
         with st.spinner("Connecting to Angel One..."):
             try:
                 raw    = fetch_angel_trades(days_back=days_back)
+                if raw:
+                    with st.expander("🔍 Raw API data (first trade)", expanded=True):
+                        st.json(raw[0])
                 saved, skipped, msg = match_and_save_trades(raw)
                 if saved > 0:
                     st.success(msg)
