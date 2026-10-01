@@ -16,6 +16,7 @@ from cloud_data import (
     build_excel_report, _is_cloud,
     DEFAULT_BROKERAGE, DEFAULT_OTHER,
 )
+from angel_sync import render_angel_sync_panel, is_angel_configured
 
 st.set_page_config(
     page_title="Raja's Trading Records",
@@ -38,6 +39,7 @@ page = st.sidebar.radio("Go to", [
     "📊 Dashboard",
     "💰 My Capital",
     "📓 Log Trade",
+    "🔄 Angel One Sync",
     "📋 All Trades",
     "📅 Monthly Report",
     "📈 Performance",
@@ -426,6 +428,12 @@ elif page == "📈 Performance":
 # ═════════════════════════════════════════════════════════════════════════════
 # PAGE 7 — EXPORT
 # ═════════════════════════════════════════════════════════════════════════════
+elif page == "🔄 Angel One Sync":
+    st.title("🔄 Angel One Auto-Sync")
+    st.caption("Automatically fetch your executed trades from Angel One — no manual entry needed!")
+    st.markdown("---")
+    render_angel_sync_panel()
+
 elif page == "⬇️ Export":
     st.title("⬇️ Export Your Records")
     st.markdown("---")
