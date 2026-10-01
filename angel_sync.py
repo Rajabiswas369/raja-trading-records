@@ -45,10 +45,13 @@ def _login_angel():
     creds = _get_angel_credentials()
     obj   = SmartConnect(api_key=creds["api_key"])
 
-    # Generate TOTP if key provided, else use MPIN only
-    totp = ""
-    if creds["totp_key"]:
-        totp = pyotp.TOTP(creds["totp_key"]).now()
+    # Generate TOTP — if no key provided, generate a dummy one
+    totp_key = creds.get("totp_key", "")
+    if totp_key:
+        totp = pyotp.TOTP(totp_key).now()
+    else:
+        # Angel One requires TOTP field — use MPIN as fallback
+        totp = creds["mpin"]
 
     data = obj.generateSession(
         creds["client_id"],
@@ -170,7 +173,9 @@ def match_and_save_trades(raw_trades: list) -> tuple:
 
         entry_price = buy["price"]
         exit_price  = sell["price"] if sell else 0.0
-        lot_size    = 75  # default NIFTY lot size
+        lot_size    = int(raw_trades[0].get("lotsize", 0) or 0) if raw_trades else 0
+        if lot_size == 0:
+            lot_size = 75  # fallback default
         lots        = max(1, buy["qty"] // lot_size)
 
         # Parse expiry from symbol if possible
