@@ -90,22 +90,65 @@ def _parse_angel_trade(raw: dict) -> dict:
     Convert Angel One raw trade dict to your dashboard trade format.
     Maps Angel One field names to your column names.
     """
+    import re
+
     # Determine option type from symbol name
     symbol      = raw.get("tradingsymbol", "")
     option_type = "CALL" if "CE" in symbol else ("PUT" if "PE" in symbol else "")
 
-    # Extract strike from symbol (e.g. NIFTY2510522500PE → 22500)
+    # Extract strike from symbol
+    # Angel One symbol format: NIFTY25OCT2226500PE or NIFTY2510522500PE
+    # Strike is always the digits immediately before CE/PE — last 4 or 5 digits
     strike = ""
     try:
-        import re
-        match = re.search(r'(\d{4,6})(CE|PE)$', symbol)
+        # Match last 4-5 digit number before CE/PE (strike price is always 4-5 digits for NIFTY)
+        match = re.search(r'(\d{4,5})(CE|PE)$', symbol)
         if match:
             strike = match.group(1)
+        else:
+            # Fallback: take all digits before CE/PE and use last 5
+            match2 = re.search(r'(\d+)(CE|PE)$', symbol)
+            if match2:
+                digits = match2.group(1)
+                strike = digits[-5:] if len(digits) > 5 else digits
     except Exception:
         pass
 
-    qty        = int(raw.get("fillshares", 0) or 0)
-    price      = float(raw.get("averageprice", 0) or 0)
+    # Price — try multiple field names Angel One API uses
+    price = 0.0
+    for field in ["averageprice", "price", "tradeprice", "avg_price"]:
+        val = raw.get(field, 0)
+        try:
+            price = float(val or 0)
+            if price > 0:
+                break
+        except Exception:
+            pass
+
+    # Qty — try multiple field names
+    qty = 0
+    for field in ["fillshares", "filledshares", "qty", "quantity", "tradedquantity"]:
+        val = raw.get(field, 0)
+        try:
+            qty = int(val or 0)
+            if qty > 0:
+                break
+        except Exception:
+            pass
+
+    # Lot size — try to get from API response
+    lot_size = 0
+    for field in ["lotsize", "lot_size", "instrumentlotsize"]:
+        val = raw.get(field, 0)
+        try:
+            lot_size = int(val or 0)
+            if lot_size > 0:
+                break
+        except Exception:
+            pass
+    if lot_size == 0:
+        lot_size = 65  # current NIFTY lot size
+
     order_type = raw.get("transactiontype", "")   # BUY or SELL
     trade_time = raw.get("updatetime", "")
 
@@ -115,11 +158,13 @@ def _parse_angel_trade(raw: dict) -> dict:
         "strike":        strike,
         "qty":           qty,
         "price":         price,
+        "lot_size":      lot_size,
         "order_type":    order_type,  # BUY or SELL
         "trade_time":    trade_time,
         "exchange":      raw.get("exchange", "NFO"),
         "product":       raw.get("producttype", ""),
         "order_id":      raw.get("orderid", ""),
+        "_raw":          raw,  # keep raw for debugging
     }
 
 
@@ -173,10 +218,8 @@ def match_and_save_trades(raw_trades: list) -> tuple:
 
         entry_price = buy["price"]
         exit_price  = sell["price"] if sell else 0.0
-        lot_size    = int(raw_trades[0].get("lotsize", 0) or 0) if raw_trades else 0
-        if lot_size == 0:
-            lot_size = 75  # fallback default
-        lots        = max(1, buy["qty"] // lot_size)
+        lot_size    = buy.get("lot_size", 65) or 65
+        lots        = max(1, buy["qty"] // lot_size) if lot_size > 0 else 1
 
         # Parse expiry from symbol if possible
         expiry = ""
