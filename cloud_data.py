@@ -1,7 +1,7 @@
 """
-cloud_data.py — Google Sheets backend for persistent cloud storage.
-All trades and capital are stored in a Google Sheet, accessible from any device.
-Falls back to in-memory storage if Google Sheets is not configured yet.
+cloud_data.py — Supabase backend for persistent cloud storage.
+All trades and capital are stored in Supabase (free, no card needed).
+Falls back to in-memory storage if Supabase is not configured yet.
 """
 
 import streamlit as st
@@ -24,37 +24,20 @@ DEFAULT_STT_PCT   = 0.05
 DEFAULT_OTHER     = 15.0
 
 
-# ── Google Sheets connection ───────────────────────────────────────────────────
+# ── Supabase connection ────────────────────────────────────────────────────────
 
-def _get_gc():
-    """Return authenticated gspread client using Streamlit secrets."""
-    import gspread
-    from google.oauth2.service_account import Credentials
-    creds_dict = dict(st.secrets["gcp_service_account"])
-    scopes = [
-        "https://spreadsheets.google.com/feeds",
-        "https://www.googleapis.com/auth/drive",
-    ]
-    creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-    return gspread.authorize(creds)
-
-
-def _get_sheet(tab_name: str):
-    """Return a gspread worksheet by tab name."""
-    gc        = _get_gc()
-    sheet_url = st.secrets["sheet_url"]
-    sh        = gc.open_by_url(sheet_url)
-    try:
-        return sh.worksheet(tab_name)
-    except Exception:
-        ws = sh.add_worksheet(title=tab_name, rows=1000, cols=30)
-        return ws
+def _get_client():
+    """Return authenticated Supabase client using Streamlit secrets."""
+    from supabase import create_client
+    url = st.secrets["supabase_url"]
+    key = st.secrets["supabase_key"]
+    return create_client(url, key)
 
 
 def _is_cloud() -> bool:
-    """True if Google Sheets secrets are configured."""
+    """True if Supabase secrets are configured."""
     try:
-        return "gcp_service_account" in st.secrets and "sheet_url" in st.secrets
+        return "supabase_url" in st.secrets and "supabase_key" in st.secrets
     except Exception:
         return False
 
@@ -63,18 +46,20 @@ def _is_cloud() -> bool:
 
 @st.cache_data(ttl=30)
 def load_trades() -> pd.DataFrame:
-    """Load all trades from Google Sheets (or empty DataFrame)."""
+    """Load all trades from Supabase (or empty DataFrame if not configured)."""
     if not _is_cloud():
-        # local fallback — session state only
         if "trades_df" not in st.session_state:
             st.session_state.trades_df = pd.DataFrame(columns=TRADE_COLUMNS)
         return st.session_state.trades_df.copy()
     try:
-        ws   = _get_sheet("Trades")
-        data = ws.get_all_records()
+        client   = _get_client()
+        response = client.table("trades").select("*").order("trade_num").execute()
+        data     = response.data
         if not data:
             return pd.DataFrame(columns=TRADE_COLUMNS)
         df = pd.DataFrame(data)
+        # Map db column names back to display names
+        df = df.rename(columns={"trade_num": "Trade #"})
         for col in TRADE_COLUMNS:
             if col not in df.columns:
                 df[col] = ""
@@ -85,15 +70,21 @@ def load_trades() -> pd.DataFrame:
 
 
 def _save_trades(df: pd.DataFrame) -> None:
-    """Save full trades DataFrame back to Google Sheets."""
+    """Save full trades DataFrame back to Supabase."""
     load_trades.clear()
     if not _is_cloud():
         st.session_state.trades_df = df.copy()
         return
     try:
-        ws = _get_sheet("Trades")
-        ws.clear()
-        ws.update([df.columns.tolist()] + df.fillna("").astype(str).values.tolist())
+        client = _get_client()
+        # Clear existing rows then insert all
+        client.table("trades").delete().neq("trade_num", -999).execute()
+        rows = df.copy()
+        rows = rows.rename(columns={"Trade #": "trade_num"})
+        rows = rows.fillna("").astype(str)
+        records = rows.to_dict("records")
+        if records:
+            client.table("trades").insert(records).execute()
     except Exception as e:
         st.error("Could not save trade: {}".format(e))
 
@@ -152,20 +143,26 @@ def add_trade(
 
 @st.cache_data(ttl=30)
 def load_capital_history() -> pd.DataFrame:
-    """Load capital history from Google Sheets."""
+    """Load capital history from Supabase."""
     if not _is_cloud():
         if "capital_df" not in st.session_state:
             st.session_state.capital_df = pd.DataFrame([
                 {"Date": "2026-10-01", "Balance": 40000.0, "Note": "Initial capital"},
-                {"Date": "2026-10-01", "Balance": 32660.0, "Note": "After Trade #1 loss"},
             ])
         return st.session_state.capital_df.copy()
     try:
-        ws   = _get_sheet("Capital")
-        data = ws.get_all_records()
+        client   = _get_client()
+        response = client.table("capital").select("*").order("date").execute()
+        data     = response.data
         if not data:
             return pd.DataFrame(columns=CAPITAL_COLUMNS)
-        return pd.DataFrame(data)[CAPITAL_COLUMNS]
+        df = pd.DataFrame(data)
+        # Normalise column names (Supabase returns lowercase)
+        df.columns = [c.capitalize() if c in ["date","balance","note"] else c for c in df.columns]
+        for col in CAPITAL_COLUMNS:
+            if col not in df.columns:
+                df[col] = ""
+        return df[CAPITAL_COLUMNS]
     except Exception as e:
         st.warning("Could not load capital: {}".format(e))
         return pd.DataFrame(columns=CAPITAL_COLUMNS)
@@ -177,9 +174,13 @@ def _save_capital(df: pd.DataFrame) -> None:
         st.session_state.capital_df = df.copy()
         return
     try:
-        ws = _get_sheet("Capital")
-        ws.clear()
-        ws.update([df.columns.tolist()] + df.fillna("").astype(str).values.tolist())
+        client = _get_client()
+        client.table("capital").delete().neq("date", "1900-01-01").execute()
+        rows = df.copy()
+        rows.columns = [c.lower() for c in rows.columns]
+        records = rows.fillna("").astype(str).to_dict("records")
+        if records:
+            client.table("capital").insert(records).execute()
     except Exception as e:
         st.error("Could not save capital: {}".format(e))
 
@@ -258,14 +259,13 @@ def get_stats(df: pd.DataFrame = None) -> dict:
     }
 
 
-# ── Excel export (in-memory, for download button) ─────────────────────────────
+# ── Excel export ───────────────────────────────────────────────────────────────
 
 def build_excel_report(df: pd.DataFrame) -> bytes:
     from io import BytesIO
     buf = BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as writer:
         df.to_excel(writer, sheet_name="Trades", index=False)
-        # Monthly summary
         closed = df[df["Result"].isin(["WIN", "LOSS"])].copy()
         if not closed.empty:
             closed["Month"] = pd.to_datetime(closed["Date"], errors="coerce").dt.strftime("%b %Y")
@@ -276,7 +276,6 @@ def build_excel_report(df: pd.DataFrame) -> bytes:
             ).reset_index().rename(columns={"Net_PnL": "Net P&L"})
             monthly["Win Rate %"] = round(monthly["Wins"] / monthly["Trades"] * 100, 1)
             monthly.to_excel(writer, sheet_name="Monthly Summary", index=False)
-        # Performance
         stats = get_stats(df)
         perf  = pd.DataFrame([{"Metric": k, "Value": v} for k, v in stats.items()])
         perf.to_excel(writer, sheet_name="Performance", index=False)
