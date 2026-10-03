@@ -13,6 +13,7 @@ from io import BytesIO
 
 import streamlit as st
 import plotly.graph_objects as go
+from angel_sync import render_angel_sync_panel
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Page config
@@ -199,8 +200,8 @@ st.sidebar.title("My Trading Records")
 st.sidebar.markdown("---")
 page = st.sidebar.radio(
     "Go to",
-    ["📊 Dashboard", "💰 My Capital", "📓 Log Trade", "📋 All Trades",
-     "📅 Monthly Report", "📈 Performance", "💸 Expenses", "⬇️ Export"],
+    ["📊 Dashboard", "💰 My Capital", "📓 Log Trade", "🔄 Angel One Sync",
+     "📋 All Trades", "📅 Monthly Report", "📈 Performance", "💸 Expenses", "⬇️ Export"],
 )
 st.sidebar.markdown("---")
 conn_ok = _get_conn() is not None
@@ -480,6 +481,20 @@ elif page == "📓 Log Trade":
 # ═════════════════════════════════════════════════════════════════════════════
 # PAGE 4 — ALL TRADES
 # ═════════════════════════════════════════════════════════════════════════════
+
+# =============================================================================
+# PAGE 4 — ANGEL ONE SYNC
+# =============================================================================
+elif page == "🔄 Angel One Sync":
+    st.title("🔄 Angel One Auto-Sync")
+    st.caption("Automatically fetch your executed trades from Angel One — no manual entry needed!")
+    st.markdown("---")
+    render_angel_sync_panel(
+        load_fn=load_trades,
+        save_fn=save_trades,
+        columns=COLUMNS,
+    )
+
 elif page == "📋 All Trades":
     st.title("📋 All Trades")
     if df.empty:
