@@ -4,3 +4,5 @@ numpy
 plotly
 st-gsheets-connection==0.1.0
 openpyxl
+smartapi-python>=1.3.4
+pyotp>=2.9.0
