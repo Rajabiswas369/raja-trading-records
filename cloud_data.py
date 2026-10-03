@@ -19,6 +19,37 @@ TRADE_COLUMNS = [
 
 CAPITAL_COLUMNS = ["Date", "Balance", "Note"]
 
+# Display name → Supabase column name
+COL_TO_DB = {
+    "Trade #":        "trade_num",
+    "Date":           "date",
+    "Time":           "time",
+    "Symbol":         "symbol",
+    "Option Type":    "option_type",
+    "Strike":         "strike",
+    "Expiry":         "expiry",
+    "Entry Price":    "entry_price",
+    "Exit Price":     "exit_price",
+    "Lots":           "lots",
+    "Lot Size":       "lot_size",
+    "Capital Used":   "capital_used",
+    "Gross P&L":      "gross_pnl",
+    "Brokerage":      "brokerage",
+    "STT":            "stt",
+    "Other Charges":  "other_charges",
+    "Net P&L":        "net_pnl",
+    "Result":         "result",
+    "Hold Time":      "hold_time",
+    "Entry RSI":      "entry_rsi",
+    "Entry ADX":      "entry_adx",
+    "Supertrend":     "supertrend",
+    "Dashboard Said": "dashboard_said",
+    "Lessons Learned":"lessons_learned",
+    "Notes":          "notes",
+}
+# Reverse map: Supabase → display
+DB_TO_COL = {v: k for k, v in COL_TO_DB.items()}
+
 DEFAULT_BROKERAGE = 40.0
 DEFAULT_STT_PCT   = 0.05
 DEFAULT_OTHER     = 15.0
@@ -57,9 +88,7 @@ def load_trades() -> pd.DataFrame:
         data     = response.data
         if not data:
             return pd.DataFrame(columns=TRADE_COLUMNS)
-        df = pd.DataFrame(data)
-        # Map db column names back to display names
-        df = df.rename(columns={"trade_num": "Trade #"})
+        df = pd.DataFrame(data).rename(columns=DB_TO_COL)
         for col in TRADE_COLUMNS:
             if col not in df.columns:
                 df[col] = ""
@@ -77,12 +106,12 @@ def _save_trades(df: pd.DataFrame) -> None:
         return
     try:
         client = _get_client()
-        # Clear existing rows then insert all
         client.table("trades").delete().neq("trade_num", -999).execute()
-        rows = df.copy()
-        rows = rows.rename(columns={"Trade #": "trade_num"})
+        rows = df.copy().rename(columns=COL_TO_DB)
         rows = rows.fillna("").astype(str)
-        records = rows.to_dict("records")
+        # Only keep columns that exist in the mapping
+        db_cols = [c for c in rows.columns if c in DB_TO_COL or c in COL_TO_DB.values()]
+        records = rows[db_cols].to_dict("records")
         if records:
             client.table("trades").insert(records).execute()
     except Exception as e:
