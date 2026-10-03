@@ -1,7 +1,7 @@
 """
-Raja's Trading Records — Cloud App
+Raja's Trading Records â€” Cloud App
 Accessible from any device, anywhere.
-Data stored in Google Sheets — persistent forever.
+Data stored in Google Sheets â€” persistent forever.
 """
 
 import streamlit as st
@@ -20,35 +20,35 @@ from angel_sync import render_angel_sync_panel, is_angel_configured
 
 st.set_page_config(
     page_title="Raja's Trading Records",
-    page_icon="📒",
+    page_icon="ðŸ“’",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# ── Sidebar ───────────────────────────────────────────────────────────────────
-st.sidebar.title("📒 Raja's Trading Records")
+# â”€â”€ Sidebar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+st.sidebar.title("ðŸ“’ Raja's Trading Records")
 st.sidebar.markdown("---")
 
 # Cloud status indicator
 if _is_cloud():
-    st.sidebar.success("☁️ Connected to Google Sheets")
+    st.sidebar.success("â˜ï¸ Connected to Google Sheets")
 else:
-    st.sidebar.warning("💻 Running locally — data in memory only")
+    st.sidebar.warning("ðŸ’» Running locally â€” data in memory only")
 
 page = st.sidebar.radio("Go to", [
-    "📊 Dashboard",
-    "💰 My Capital",
-    "📓 Log Trade",
-    "🔄 Angel One Sync",
-    "📋 All Trades",
-    "📅 Monthly Report",
-    "📈 Performance",
-    "⬇️ Export",
+    "ðŸ“Š Dashboard",
+    "ðŸ’° My Capital",
+    "ðŸ““ Log Trade",
+    "ðŸ”„ Angel One Sync",
+    "ðŸ“‹ All Trades",
+    "ðŸ“… Monthly Report",
+    "ðŸ“ˆ Performance",
+    "â¬‡ï¸ Export",
 ])
 st.sidebar.markdown("---")
 st.sidebar.caption("Data syncs to Google Sheets automatically.\nOpen from any device, anywhere.")
 
-# ── Load data ─────────────────────────────────────────────────────────────────
+# â”€â”€ Load data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 df        = load_trades()
 stats     = get_stats(df)
 cap_stats = get_capital_stats()
@@ -56,32 +56,32 @@ closed_df = df[df["Result"].isin(["WIN", "LOSS"])].copy() if not df.empty else p
 
 
 def pnl_color(val):
-    d  = ("▲ Rs {:,.0f}".format(val) if val >= 0 else "▼ Rs {:,.0f}".format(abs(val)))
+    d  = ("â–² Rs {:,.0f}".format(val) if val >= 0 else "â–¼ Rs {:,.0f}".format(abs(val)))
     dc = "normal" if val >= 0 else "inverse"
     return d, dc
 
 
-# ═════════════════════════════════════════════════════════════════════════════
-# PAGE 1 — DASHBOARD
-# ═════════════════════════════════════════════════════════════════════════════
-if page == "📊 Dashboard":
-    st.title("📊 My Trading Dashboard")
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# PAGE 1 â€” DASHBOARD
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+if page == "ðŸ“Š Dashboard":
+    st.title("ðŸ“Š My Trading Dashboard")
     st.markdown("---")
 
     # Capital health bar
     rem_pct = (cap_stats["current"] / cap_stats["initial"] * 100) if cap_stats["initial"] else 0
     cap_d, cap_dc = pnl_color(cap_stats["pnl"])
     cc1, cc2, cc3, cc4, cc5 = st.columns(5)
-    cc1.metric("💰 Initial Capital",  "Rs {:,.0f}".format(cap_stats["initial"]))
-    cc2.metric("💵 Current Balance",  "Rs {:,.0f}".format(cap_stats["current"]), cap_d, delta_color=cap_dc)
-    cc3.metric("📉 P&L",              "Rs {:,.0f}".format(cap_stats["pnl"]),
+    cc1.metric("ðŸ’° Initial Capital",  "Rs {:,.0f}".format(cap_stats["initial"]))
+    cc2.metric("ðŸ’µ Current Balance",  "Rs {:,.0f}".format(cap_stats["current"]), cap_d, delta_color=cap_dc)
+    cc3.metric("ðŸ“‰ P&L",              "Rs {:,.0f}".format(cap_stats["pnl"]),
                "{:.1f}%".format(cap_stats["pnl_pct"]),
                delta_color="normal" if cap_stats["pnl"] >= 0 else "inverse")
-    cc4.metric("📅 Days Trading",     "{} days".format(cap_stats["days"]))
-    cc5.metric("🏦 Capital Left",     "{:.1f}%".format(rem_pct),
+    cc4.metric("ðŸ“… Days Trading",     "{} days".format(cap_stats["days"]))
+    cc5.metric("ðŸ¦ Capital Left",     "{:.1f}%".format(rem_pct),
                delta_color="normal" if rem_pct >= 80 else "inverse")
 
-    prog = "🟢" if rem_pct >= 80 else ("🟡" if rem_pct >= 60 else "🔴")
+    prog = "ðŸŸ¢" if rem_pct >= 80 else ("ðŸŸ¡" if rem_pct >= 60 else "ðŸ”´")
     st.progress(min(int(rem_pct), 100),
                 text="{} Rs {:,.0f} of Rs {:,.0f} remaining ({:.1f}%)".format(
                     prog, cap_stats["current"], cap_stats["initial"], rem_pct))
@@ -121,7 +121,7 @@ if page == "📊 Dashboard":
             ))
             fig.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.3)")
             fig.update_layout(template="plotly_dark", height=300,
-                              title="📈 Equity Curve",
+                              title="ðŸ“ˆ Equity Curve",
                               xaxis_title="Trade #", yaxis_title="Cumulative P&L (Rs)",
                               margin=dict(l=0, r=0, t=40, b=0))
             st.plotly_chart(fig, use_container_width=True)
@@ -134,25 +134,25 @@ if page == "📊 Dashboard":
                 hole=0.5, textinfo="label+percent",
             ))
             pie.update_layout(template="plotly_dark", height=300,
-                              title="🏆 Win/Loss", showlegend=False,
+                              title="ðŸ† Win/Loss", showlegend=False,
                               margin=dict(l=0, r=0, t=40, b=0))
             st.plotly_chart(pie, use_container_width=True)
 
         # Recent trades
-        st.markdown("#### 🕐 Last 5 Trades")
+        st.markdown("#### ðŸ• Last 5 Trades")
         show_cols = ["Trade #","Date","Symbol","Option Type","Strike",
                      "Entry Price","Exit Price","Net P&L","Result"]
         st.dataframe(df[show_cols].tail(5).sort_index(ascending=False),
                      use_container_width=True, hide_index=True)
     else:
-        st.info("No trades yet. Go to **📓 Log Trade** to record your first trade!")
+        st.info("No trades yet. Go to **ðŸ““ Log Trade** to record your first trade!")
 
 
-# ═════════════════════════════════════════════════════════════════════════════
-# PAGE 2 — MY CAPITAL
-# ═════════════════════════════════════════════════════════════════════════════
-elif page == "💰 My Capital":
-    st.title("💰 My Capital Tracker")
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# PAGE 2 â€” MY CAPITAL
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+elif page == "ðŸ’° My Capital":
+    st.title("ðŸ’° My Capital Tracker")
     st.caption("Track your investment from any device. Updates saved to Google Sheets instantly.")
     st.markdown("---")
 
@@ -160,16 +160,16 @@ elif page == "💰 My Capital":
     cap_d, cap_dc = pnl_color(cap_stats["pnl"])
 
     c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("💰 Initial",        "Rs {:,.0f}".format(cap_stats["initial"]))
-    c2.metric("💵 Current Balance","Rs {:,.0f}".format(cap_stats["current"]), cap_d, delta_color=cap_dc)
-    c3.metric("📊 Total P&L",      "Rs {:,.0f}".format(cap_stats["pnl"]),
+    c1.metric("ðŸ’° Initial",        "Rs {:,.0f}".format(cap_stats["initial"]))
+    c2.metric("ðŸ’µ Current Balance","Rs {:,.0f}".format(cap_stats["current"]), cap_d, delta_color=cap_dc)
+    c3.metric("ðŸ“Š Total P&L",      "Rs {:,.0f}".format(cap_stats["pnl"]),
               "{:.2f}%".format(cap_stats["pnl_pct"]),
               delta_color="normal" if cap_stats["pnl"] >= 0 else "inverse")
-    c4.metric("📅 Days Trading",   "{} days".format(cap_stats["days"]))
-    c5.metric("🏦 Capital Left",   "{:.1f}%".format(rem_pct),
+    c4.metric("ðŸ“… Days Trading",   "{} days".format(cap_stats["days"]))
+    c5.metric("ðŸ¦ Capital Left",   "{:.1f}%".format(rem_pct),
               delta_color="normal" if rem_pct >= 80 else "inverse")
 
-    prog = "🟢" if rem_pct >= 80 else ("🟡" if rem_pct >= 60 else "🔴")
+    prog = "ðŸŸ¢" if rem_pct >= 80 else ("ðŸŸ¡" if rem_pct >= 60 else "ðŸ”´")
     st.progress(min(int(rem_pct), 100),
                 text="{} Rs {:,.0f} of Rs {:,.0f} remaining ({:.1f}%)".format(
                     prog, cap_stats["current"], cap_stats["initial"], rem_pct))
@@ -177,13 +177,13 @@ elif page == "💰 My Capital":
     st.markdown("---")
 
     # Update balance form
-    with st.expander("⚙️ Update My Balance", expanded=False):
+    with st.expander("âš™ï¸ Update My Balance", expanded=False):
         with st.form("cap_form"):
             uf1, uf2 = st.columns(2)
             new_bal  = uf1.number_input("New Balance (Rs)", value=float(cap_stats["current"]),
                                          step=100.0, format="%.0f")
             note_txt = uf2.text_input("Reason", placeholder="e.g. After today's trade")
-            if st.form_submit_button("💾 Update Balance"):
+            if st.form_submit_button("ðŸ’¾ Update Balance"):
                 update_capital(new_bal, note_txt)
                 st.success("Balance updated to Rs {:,.0f}".format(new_bal))
                 st.rerun()
@@ -212,18 +212,18 @@ elif page == "💰 My Capital":
                        annotation_text="Initial: Rs {:,.0f}".format(cap_stats["initial"]),
                        annotation_position="bottom right")
         fig2.update_layout(template="plotly_dark", height=350,
-                           title="💵 Capital Balance Over Time",
+                           title="ðŸ’µ Capital Balance Over Time",
                            xaxis_title="Date", yaxis_title="Rs",
                            margin=dict(l=0, r=0, t=40, b=0))
         st.plotly_chart(fig2, use_container_width=True)
 
-        st.subheader("📋 Balance History")
+        st.subheader("ðŸ“‹ Balance History")
         st.dataframe(hdf[["Date","Balance","Note"]].sort_values("Date", ascending=False),
                      use_container_width=True, hide_index=True)
 
     # 30-day projection
     st.markdown("---")
-    st.subheader("🔮 30-Day Projection")
+    st.subheader("ðŸ”® 30-Day Projection")
     if stats["total_trades"] > 0:
         avg = stats["total_pnl"] / stats["total_trades"]
         proj_pnl = avg * stats["total_trades"]
@@ -234,20 +234,20 @@ elif page == "💰 My Capital":
                   delta_color="normal" if proj_pnl >= 0 else "inverse")
         p3.metric("Projected Balance", "Rs {:,.0f}".format(proj_bal),
                   delta_color="normal" if proj_bal >= cap_stats["initial"] else "inverse")
-        st.caption("⚠️ Based on {} trade(s) only. More trades = more accurate.".format(stats["total_trades"]))
+        st.caption("âš ï¸ Based on {} trade(s) only. More trades = more accurate.".format(stats["total_trades"]))
     else:
         st.info("Log trades to see your 30-day projection.")
 
 
-# ═════════════════════════════════════════════════════════════════════════════
-# PAGE 3 — LOG TRADE
-# ═════════════════════════════════════════════════════════════════════════════
-elif page == "📓 Log Trade":
-    st.title("📓 Log a Trade")
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# PAGE 3 â€” LOG TRADE
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+elif page == "ðŸ““ Log Trade":
+    st.title("ðŸ““ Log a Trade")
     st.caption("Saved instantly to Google Sheets. Visible on all your devices.")
     st.markdown("---")
 
-    # ── Enter-key → move to next field (prevents form submission on Enter) ────
+    # â”€â”€ Enter-key â†’ move to next field (prevents form submission on Enter) â”€â”€â”€â”€
     st.markdown("""
 <script>
 (function() {
@@ -288,7 +288,7 @@ elif page == "📓 Log Trade":
 
     c5, c6, c7, c8, c9 = st.columns([2, 2, 1, 1, 1])
     f_entry  = c5.number_input("Entry Price (Rs)", value=0.0, step=0.05, format="%.2f", min_value=0.0, key="cr_entry")
-    f_exit   = c6.number_input("Exit Price (Rs) — 0 if open", value=0.0, step=0.05, format="%.2f", min_value=0.0, key="cr_exit")
+    f_exit   = c6.number_input("Exit Price (Rs) â€” 0 if open", value=0.0, step=0.05, format="%.2f", min_value=0.0, key="cr_exit")
     f_lots   = c7.number_input("Lots",      value=1, step=1, min_value=1, key="cr_lots")
     f_lsize  = c8.number_input("Lot Size",  value=75, step=1, min_value=1, key="cr_lsize")
     calc_qty = int(f_lots * f_lsize)
@@ -305,7 +305,7 @@ elif page == "📓 Log Trade":
     f_hold   = n1.text_input("Hold Time",   placeholder="e.g. 45 min", key="cr_hold")
     f_lesson = n2.text_input("Lesson Learned", placeholder="e.g. Don't enter when RSI < 35", key="cr_lesson")
 
-    st.markdown("**📝 Trade Notes / Observations (Saved to Records):**")
+    st.markdown("**ðŸ“ Trade Notes / Observations (Saved to Records):**")
     f_notes  = st.text_area("Notes",        height=90,
                              placeholder="What did you observe? Why did you enter?", key="cr_notes", label_visibility="collapsed")
 
@@ -321,9 +321,9 @@ elif page == "📓 Log Trade":
     p4.metric("Capital Required", f"Rs {cap_preview:,.2f}")
 
     if f_entry <= 0:
-        st.warning("⚠️ Please fill in an **Entry Price > 0** before clicking save.")
+        st.warning("âš ï¸ Please fill in an **Entry Price > 0** before clicking save.")
 
-    if st.button("💾 Save Trade to Cloud Records", use_container_width=True, type="primary"):
+    if st.button("ðŸ’¾ Save Trade to Cloud Records", use_container_width=True, type="primary"):
         if f_entry <= 0:
             st.error("Entry price must be greater than 0.")
         else:
@@ -336,7 +336,7 @@ elif page == "📓 Log Trade":
                 hold_time=f_hold, lessons=f_lesson, notes=f_notes,
                 brokerage=f_brok,
             )
-            em = "✅ WIN" if saved["Result"]=="WIN" else ("❌ LOSS" if saved["Result"]=="LOSS" else "📂 OPEN")
+            em = "âœ… WIN" if saved["Result"]=="WIN" else ("âŒ LOSS" if saved["Result"]=="LOSS" else "ðŸ“‚ OPEN")
             new_bal_msg = ""
             if saved["Result"] in ("WIN", "LOSS"):
                 try:
@@ -348,9 +348,9 @@ elif page == "📓 Log Trade":
                 saved["Trade #"], em, new_bal_msg))
             st.rerun()
 
-    # ── Recent Trades Log + Delete ─────────────────────────────────────────────
+    # â”€â”€ Recent Trades Log + Delete â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     st.markdown("---")
-    st.subheader("📋 Recent Trades Log")
+    st.subheader("ðŸ“‹ Recent Trades Log")
     fresh_df = load_trades()
     if fresh_df.empty:
         st.info("No trades logged yet.")
@@ -360,35 +360,35 @@ elif page == "📓 Log Trade":
         recent = fresh_df[show_cols].sort_values("Trade #", ascending=False).head(20)
         st.dataframe(recent, use_container_width=True, hide_index=True)
 
-        st.markdown("#### 🗑️ Delete a Trade")
-        st.caption("⚠️ Deleting a closed trade will also reverse its impact on your capital balance.")
+        st.markdown("#### ðŸ—‘ï¸ Delete a Trade")
+        st.caption("âš ï¸ Deleting a closed trade will also reverse its impact on your capital balance.")
         del_col1, del_col2 = st.columns([2, 1])
         trade_options = fresh_df.sort_values("Trade #", ascending=False)["Trade #"].tolist()
         trade_labels  = [
-            "#{} — {} {} {} | {}".format(
+            "#{} â€” {} {} {} | {}".format(
                 int(r["Trade #"]), r["Date"], r["Symbol"],
                 r["Option Type"],  r["Result"])
             for _, r in fresh_df.sort_values("Trade #", ascending=False).iterrows()
         ]
         sel_label = del_col1.selectbox("Select trade to delete", trade_labels, key="cr_del_sel")
-        sel_num   = int(sel_label.split(" — ")[0].replace("#", "").strip())
+        sel_num   = int(sel_label.split(" â€” ")[0].replace("#", "").strip())
 
-        if del_col2.button("🗑️ Delete Selected Trade", type="secondary", use_container_width=True, key="cr_del_btn"):
+        if del_col2.button("ðŸ—‘ï¸ Delete Selected Trade", type="secondary", use_container_width=True, key="cr_del_btn"):
             status = delete_trade(sel_num)
             if status == "deleted_with_capital":
-                st.success("✅ Trade #{} deleted and capital balance reversed.".format(sel_num))
+                st.success("âœ… Trade #{} deleted and capital balance reversed.".format(sel_num))
             elif status == "deleted":
-                st.success("✅ Trade #{} deleted (OPEN trade — no capital change).".format(sel_num))
+                st.success("âœ… Trade #{} deleted (OPEN trade â€” no capital change).".format(sel_num))
             else:
                 st.error(status)
             st.rerun()
 
 
-# ═════════════════════════════════════════════════════════════════════════════
-# PAGE 4 — ALL TRADES
-# ═════════════════════════════════════════════════════════════════════════════
-elif page == "📋 All Trades":
-    st.title("📋 All Trades")
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# PAGE 4 â€” ALL TRADES
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+elif page == "ðŸ“‹ All Trades":
+    st.title("ðŸ“‹ All Trades")
     if df.empty:
         st.info("No trades yet.")
     else:
@@ -410,11 +410,11 @@ elif page == "📋 All Trades":
             st.metric("Net P&L (filtered)", "Rs {:,.0f}".format(tot), d, delta_color=dc)
 
 
-# ═════════════════════════════════════════════════════════════════════════════
-# PAGE 5 — MONTHLY REPORT
-# ═════════════════════════════════════════════════════════════════════════════
-elif page == "📅 Monthly Report":
-    st.title("📅 Monthly P&L Report")
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# PAGE 5 â€” MONTHLY REPORT
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+elif page == "ðŸ“… Monthly Report":
+    st.title("ðŸ“… Monthly P&L Report")
     st.markdown("---")
     if closed_df.empty:
         st.info("No closed trades yet.")
@@ -434,10 +434,10 @@ elif page == "📅 Monthly Report":
         wins    = (view["Result"] == "WIN").sum()
         total   = len(view)
 
-        st.subheader("📄 P&L Statement — {}".format(sel))
+        st.subheader("ðŸ“„ P&L Statement â€” {}".format(sel))
         st.markdown("""
 <div style="background:#1e2130;border-radius:10px;padding:20px 28px;font-family:monospace;font-size:15px;line-height:2.2">
-<span style="color:#3498db;font-size:16px;font-weight:bold">TRADING P&L STATEMENT — {title}</span><br>
+<span style="color:#3498db;font-size:16px;font-weight:bold">TRADING P&L STATEMENT â€” {title}</span><br>
 <hr style="border-color:#333;margin:8px 0">
 Trades: <b>{total}</b> &nbsp;|&nbsp; Wins: <span style="color:#26a69a"><b>{wins}</b></span> &nbsp;|&nbsp; Losses: <span style="color:#ef5350"><b>{losses}</b></span> &nbsp;|&nbsp; Win Rate: <b>{wr:.1f}%</b>
 <hr style="border-color:#333;margin:8px 0">
@@ -460,11 +460,11 @@ Capital Used &nbsp;&nbsp;: Rs {cap:,.2f}
         ), unsafe_allow_html=True)
 
 
-# ═════════════════════════════════════════════════════════════════════════════
-# PAGE 6 — PERFORMANCE
-# ═════════════════════════════════════════════════════════════════════════════
-elif page == "📈 Performance":
-    st.title("📈 Performance Analysis")
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# PAGE 6 â€” PERFORMANCE
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+elif page == "ðŸ“ˆ Performance":
+    st.title("ðŸ“ˆ Performance Analysis")
     st.markdown("---")
     if closed_df.empty:
         st.info("No closed trades yet.")
@@ -472,7 +472,7 @@ elif page == "📈 Performance":
         r1, r2, r3, r4 = st.columns(4)
         r1.metric("Win Rate",     "{:.1f}%".format(stats["win_rate"]))
         r2.metric("Reward:Risk",  "{:.2f}x".format(stats["reward_risk"]),
-                  "Good ✅" if stats["reward_risk"] >= 1.5 else "Needs work ⚠️")
+                  "Good âœ…" if stats["reward_risk"] >= 1.5 else "Needs work âš ï¸")
         r3.metric("Avg Win",      "Rs {:,.0f}".format(stats["avg_win"]))
         r4.metric("Avg Loss",     "Rs {:,.0f}".format(abs(stats["avg_loss"])))
         r5, r6, r7, r8 = st.columns(4)
@@ -513,35 +513,35 @@ elif page == "📈 Performance":
             st.caption("Tracks how accurate the dashboard signals actually are over time.")
 
 
-# ═════════════════════════════════════════════════════════════════════════════
-# PAGE 7 — EXPORT
-# ═════════════════════════════════════════════════════════════════════════════
-elif page == "🔄 Angel One Sync":
-    st.title("🔄 Angel One Auto-Sync")
-    st.caption("Automatically fetch your executed trades from Angel One — no manual entry needed!")
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# PAGE 7 â€” EXPORT
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+elif page == "ðŸ”„ Angel One Sync":
+    st.title("ðŸ”„ Angel One Auto-Sync")
+    st.caption("Automatically fetch your executed trades from Angel One â€” no manual entry needed!")
     st.markdown("---")
     render_angel_sync_panel()
 
-elif page == "⬇️ Export":
-    st.title("⬇️ Export Your Records")
+elif page == "â¬‡ï¸ Export":
+    st.title("â¬‡ï¸ Export Your Records")
     st.markdown("---")
     if df.empty:
         st.info("No trades to export yet.")
     else:
-        st.subheader("📊 Download Full Excel Report")
+        st.subheader("ðŸ“Š Download Full Excel Report")
         excel_bytes = build_excel_report(df)
         today = datetime.now().strftime("%Y%m%d")
         st.download_button(
-            label="⬇️ Download Excel Report (3 sheets)",
+            label="â¬‡ï¸ Download Excel Report (3 sheets)",
             data=excel_bytes,
             file_name="Raja_Trading_Report_{}.xlsx".format(today),
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
         st.markdown("---")
-        st.subheader("📋 Download CSV")
+        st.subheader("ðŸ“‹ Download CSV")
         st.download_button(
-            label="⬇️ Download CSV",
+            label="â¬‡ï¸ Download CSV",
             data=df.to_csv(index=False).encode("utf-8"),
             file_name="Raja_Trades_{}.csv".format(today),
             mime="text/csv",
@@ -549,4 +549,4 @@ elif page == "⬇️ Export":
         )
 
 st.markdown("---")
-st.caption("📒 Raja's Personal Trading Records | Data stored securely in Google Sheets | Not financial advice")
+st.caption("ðŸ“’ Raja's Personal Trading Records | Data stored securely in Google Sheets | Not financial advice")
