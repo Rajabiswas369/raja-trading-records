@@ -1,33 +1,42 @@
 """
-My Trading Records — Streamlit Cloud App
-Hosted on Streamlit Cloud — works on mobile, tablet, any device.
-Data stored in Google Sheets (cloud) — safe even if laptop is lost.
+Trading Management System — raja-trading-records
+=================================================
+Purpose: Manage your trading BUSINESS — not signals.
+
+Pages:
+  🏠 Command Centre     — Daily snapshot: target, risk, rules score
+  📓 Log Trade          — Record every trade
+  🔄 Angel One Sync     — Auto-fetch today's trades
+  💰 Capital Manager    — Track capital, deposits, withdrawals
+  🎯 Weekly Targets     — Set weekly/monthly profit targets
+  📊 Performance Hub    — Win rate, RR, signal accuracy, best days
+  📔 Trade Diary        — Emotional journal after every trade
+  ✅ Rules Checker      — Did you follow all rules today?
+  🏆 Streak Tracker     — Win/loss streaks, consistency score
+  📅 Monthly P&L        — Full P&L statement
+  💸 Expenses           — Brokerage, STT, charges breakdown
+  ⬇️  Export            — Download your data
 """
 
-import os
 import json
+import traceback
 import pandas as pd
 import numpy as np
-from datetime import datetime
-from io import BytesIO
+from datetime import datetime, date, timedelta
 
 import streamlit as st
 import plotly.graph_objects as go
-from angel_sync import render_angel_sync_panel
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Page config
-# ─────────────────────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="My Trading Records",
+    page_title="Trading Management System",
     page_icon="📒",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Constants
-# ─────────────────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════
+# CONSTANTS
+# ═════════════════════════════════════════════════════════════════════════════
 COLUMNS = [
     "Trade #", "Date", "Time", "Symbol", "Option Type", "Strike", "Expiry",
     "Entry Price", "Exit Price", "Lots", "Lot Size", "Capital Used",
@@ -39,9 +48,22 @@ DEFAULT_BROKERAGE = 40.0
 DEFAULT_STT_PCT   = 0.05
 DEFAULT_OTHER     = 15.0
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Google Sheets helpers
-# ─────────────────────────────────────────────────────────────────────────────
+TRADING_RULES = [
+    "Checked RSI between 35–65 (not extreme)",
+    "ADX > 25 (strong trend confirmed)",
+    "Supertrend confirms direction",
+    "Price on correct side of VWAP",
+    "Set SL order in broker app BEFORE buying",
+    "Trading ATM strike (not deep OTM)",
+    "Expiry is 3+ days away",
+    "No major news/event in next 1 hour",
+    "Lot size within my 2% capital risk limit",
+    "Traded in Prime window (10:30 AM – 2:30 PM)",
+]
+
+# ═════════════════════════════════════════════════════════════════════════════
+# GOOGLE SHEETS HELPERS
+# ═════════════════════════════════════════════════════════════════════════════
 def _get_conn():
     try:
         if "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
@@ -75,24 +97,26 @@ def load_capital() -> dict:
         try:
             cdf = conn.read(worksheet="Capital", ttl="0s")
             if cdf is not None and not cdf.empty:
-                row = cdf.iloc[0].to_dict()
+                row      = cdf.iloc[0].to_dict()
                 hist_raw = row.get("history_json", "[]")
-                history = json.loads(hist_raw) if isinstance(hist_raw, str) else []
+                history  = json.loads(hist_raw) if isinstance(hist_raw, str) else []
                 return {
                     "initial_capital": float(row.get("initial_capital", 40000.0)),
                     "current_capital": float(row.get("current_capital", 40000.0)),
-                    "start_date":      str(row.get("start_date", "2025-01-01")),
-                    "notes":           str(row.get("notes", "")),
+                    "start_date":      str(row.get("start_date",      "2025-01-01")),
+                    "notes":           str(row.get("notes",           "")),
                     "history":         history,
+                    "weekly_target":   float(row.get("weekly_target",  2000.0)),
+                    "daily_loss_limit":float(row.get("daily_loss_limit", 1000.0)),
+                    "monthly_target":  float(row.get("monthly_target", 8000.0)),
                 }
         except Exception:
             pass
     return {
-        "initial_capital": 40000.0,
-        "current_capital": 40000.0,
-        "start_date":      "2025-01-01",
-        "notes":           "Started trading Nifty F&O options",
-        "history":         [{"date": "2025-01-01", "balance": 40000.0, "note": "Initial capital"}],
+        "initial_capital": 40000.0, "current_capital": 40000.0,
+        "start_date": "2025-01-01", "notes": "",
+        "history": [{"date":"2025-01-01","balance":40000.0,"note":"Initial capital"}],
+        "weekly_target": 2000.0, "daily_loss_limit": 1000.0, "monthly_target": 8000.0,
     }
 
 
@@ -103,546 +127,705 @@ def save_trades(df: pd.DataFrame):
             conn.update(worksheet="Trades", data=df)
             st.cache_data.clear()
         except Exception as e:
-            st.error("Could not save to Google Sheets: {}".format(e))
+            st.error("Could not save: {}".format(e))
 
 
 def save_capital(data: dict):
     conn = _get_conn()
     if conn:
         try:
-            cdf = pd.DataFrame([{
-                "initial_capital": data.get("initial_capital", 40000.0),
-                "current_capital": data.get("current_capital", 40000.0),
-                "start_date":      data.get("start_date", "2025-01-01"),
-                "notes":           data.get("notes", ""),
-                "history_json":    json.dumps(data.get("history", [])),
-            }])
-            conn.update(worksheet="Capital", data=cdf)
+            conn.update(worksheet="Capital", data=pd.DataFrame([{
+                "initial_capital":  data.get("initial_capital",  40000.0),
+                "current_capital":  data.get("current_capital",  40000.0),
+                "start_date":       data.get("start_date",       "2025-01-01"),
+                "notes":            data.get("notes",            ""),
+                "history_json":     json.dumps(data.get("history", [])),
+                "weekly_target":    data.get("weekly_target",    2000.0),
+                "daily_loss_limit": data.get("daily_loss_limit", 1000.0),
+                "monthly_target":   data.get("monthly_target",   8000.0),
+            }]))
             st.cache_data.clear()
         except Exception as e:
             st.error("Could not save capital: {}".format(e))
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Stats helpers
-# ─────────────────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════
+# STATS HELPERS
+# ═════════════════════════════════════════════════════════════════════════════
 def get_stats(df: pd.DataFrame) -> dict:
-    closed = df[df["Result"].isin(["WIN", "LOSS"])].copy()
+    closed = df[df["Result"].isin(["WIN","LOSS"])].copy()
     if closed.empty:
-        return {k: 0 for k in ["total_trades","wins","losses","win_rate","total_pnl",
-                                "best_trade","worst_trade","avg_win","avg_loss",
-                                "reward_risk","max_drawdown","total_invested",
-                                "total_brokerage","total_charges"]}
+        return {k:0 for k in ["total_trades","wins","losses","win_rate","total_pnl",
+                               "best_trade","worst_trade","avg_win","avg_loss",
+                               "reward_risk","max_drawdown","total_brokerage","total_charges"]}
     pnl   = pd.to_numeric(closed["Net P&L"],      errors="coerce").fillna(0)
     brok  = pd.to_numeric(closed["Brokerage"],     errors="coerce").fillna(0)
     stt   = pd.to_numeric(closed["STT"],           errors="coerce").fillna(0)
     other = pd.to_numeric(closed["Other Charges"], errors="coerce").fillna(0)
-    cap   = pd.to_numeric(closed["Capital Used"],  errors="coerce").fillna(0)
-    wins  = closed[closed["Result"] == "WIN"]
-    losses= closed[closed["Result"] == "LOSS"]
-    equity= pnl.cumsum()
-    peak  = equity.cummax()
-    dd    = (equity - peak).min()
-    avg_win  = pd.to_numeric(wins["Net P&L"],   errors="coerce").mean() if not wins.empty   else 0.0
-    avg_loss = pd.to_numeric(losses["Net P&L"], errors="coerce").mean() if not losses.empty else 0.0
-    rr = round(avg_win / abs(avg_loss), 2) if avg_loss and avg_loss != 0 else 0.0
+    wins  = closed[closed["Result"]=="WIN"]
+    losses= closed[closed["Result"]=="LOSS"]
+    eq    = pnl.cumsum(); dd = (eq - eq.cummax()).min()
+    aw    = pd.to_numeric(wins["Net P&L"],   errors="coerce").mean() if not wins.empty   else 0.0
+    al    = pd.to_numeric(losses["Net P&L"], errors="coerce").mean() if not losses.empty else 0.0
     return {
-        "total_trades":    len(closed),
-        "wins":            len(wins),
-        "losses":          len(losses),
-        "win_rate":        round(len(wins) / len(closed) * 100, 1),
-        "total_pnl":       round(pnl.sum(), 2),
-        "best_trade":      round(pnl.max(), 2),
-        "worst_trade":     round(pnl.min(), 2),
-        "avg_win":         round(avg_win,  2),
-        "avg_loss":        round(avg_loss, 2),
-        "reward_risk":     rr,
-        "max_drawdown":    round(dd, 2),
-        "total_invested":  round(cap.sum(), 2),
-        "total_brokerage": round(brok.sum(), 2),
-        "total_charges":   round((brok + stt + other).sum(), 2),
-    }
-
-
-def get_capital_stats(data: dict) -> dict:
-    initial = data.get("initial_capital", 40000.0)
-    current = data.get("current_capital", 40000.0)
-    pnl     = round(current - initial, 2)
-    pct     = round((pnl / initial) * 100, 2) if initial else 0.0
-    try:
-        start = datetime.strptime(data.get("start_date", "2025-01-01"), "%Y-%m-%d")
-        days  = (datetime.now() - start).days
-    except Exception:
-        days = 0
-    return {
-        "initial": initial, "current": current,
-        "pnl": pnl, "pnl_pct": pct,
-        "days": days, "history": data.get("history", []),
+        "total_trades": len(closed), "wins": len(wins), "losses": len(losses),
+        "win_rate":     round(len(wins)/len(closed)*100,1),
+        "total_pnl":    round(pnl.sum(),2),
+        "best_trade":   round(pnl.max(),2), "worst_trade": round(pnl.min(),2),
+        "avg_win":      round(aw,2),        "avg_loss":    round(al,2),
+        "reward_risk":  round(aw/abs(al),2) if al and al!=0 else 0.0,
+        "max_drawdown": round(dd,2),
+        "total_brokerage": round(brok.sum(),2),
+        "total_charges":   round((brok+stt+other).sum(),2),
     }
 
 
 def pnl_delta(val):
-    return ("▲ Rs {:,.0f}".format(val) if val >= 0 else "▼ Rs {:,.0f}".format(abs(val)),
-            "normal" if val >= 0 else "inverse")
+    return (("▲ Rs {:,.0f}".format(val) if val>=0 else "▼ Rs {:,.0f}".format(abs(val))),
+            ("normal" if val>=0 else "inverse"))
 
 
 def _next_trade_num(df):
-    if df.empty or df["Trade #"].isna().all():
-        return 1
+    if df.empty or df["Trade #"].isna().all(): return 1
     return int(pd.to_numeric(df["Trade #"], errors="coerce").max()) + 1
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Sidebar
-# ─────────────────────────────────────────────────────────────────────────────
-st.sidebar.image("https://img.icons8.com/color/96/combo-chart.png", width=60)
-st.sidebar.title("My Trading Records")
+def get_week_pnl(df: pd.DataFrame) -> float:
+    if df.empty: return 0.0
+    today = date.today()
+    week_start = today - timedelta(days=today.weekday())
+    try:
+        closed = df[df["Result"].isin(["WIN","LOSS"])].copy()
+        closed["_d"] = pd.to_datetime(closed["Date"], errors="coerce").dt.date
+        week_trades = closed[closed["_d"] >= week_start]
+        return round(pd.to_numeric(week_trades["Net P&L"], errors="coerce").sum(), 2)
+    except Exception:
+        return 0.0
+
+
+def get_today_pnl(df: pd.DataFrame) -> float:
+    if df.empty: return 0.0
+    today_str = date.today().strftime("%Y-%m-%d")
+    try:
+        closed = df[df["Result"].isin(["WIN","LOSS"])].copy()
+        today_trades = closed[closed["Date"].astype(str) == today_str]
+        return round(pd.to_numeric(today_trades["Net P&L"], errors="coerce").sum(), 2)
+    except Exception:
+        return 0.0
+
+
+def get_month_pnl(df: pd.DataFrame) -> float:
+    if df.empty: return 0.0
+    try:
+        closed = df[df["Result"].isin(["WIN","LOSS"])].copy()
+        closed["_m"] = pd.to_datetime(closed["Date"], errors="coerce").dt.to_period("M")
+        this_month = str(pd.Timestamp.now().to_period("M"))
+        return round(pd.to_numeric(
+            closed[closed["_m"].astype(str)==this_month]["Net P&L"],
+            errors="coerce").sum(), 2)
+    except Exception:
+        return 0.0
+
+
+def get_streak(df: pd.DataFrame) -> dict:
+    closed = df[df["Result"].isin(["WIN","LOSS"])].copy()
+    if closed.empty: return {"current":0,"type":"—","longest_win":0,"longest_loss":0}
+    results = closed.sort_values("Trade #")["Result"].tolist()
+    current = 1; ctype = results[-1]
+    for i in range(len(results)-2,-1,-1):
+        if results[i] == ctype: current += 1
+        else: break
+    wins=[]; losses=[]; wc=0; lc=0
+    for r in results:
+        if r=="WIN": wc+=1; lc=0
+        else: lc+=1; wc=0
+        wins.append(wc); losses.append(lc)
+    return {"current":current,"type":ctype,
+            "longest_win":max(wins) if wins else 0,
+            "longest_loss":max(losses) if losses else 0}
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# SIDEBAR
+# ═════════════════════════════════════════════════════════════════════════════
+st.sidebar.image("https://img.icons8.com/color/96/combo-chart.png", width=56)
+st.sidebar.title("Trading Management")
 st.sidebar.markdown("---")
-page = st.sidebar.radio(
-    "Go to",
-    ["📊 Dashboard", "💰 My Capital", "📓 Log Trade", "🔄 Angel One Sync",
-     "📋 All Trades", "📅 Monthly Report", "📈 Performance", "💸 Expenses", "⬇️ Export"],
-)
+
+page = st.sidebar.radio("📂 Navigate", [
+    "🏠 Command Centre",
+    "📓 Log Trade",
+    "🔄 Angel One Sync",
+    "💰 Capital Manager",
+    "🎯 Weekly Targets",
+    "📊 Performance Hub",
+    "📔 Trade Diary",
+    "✅ Rules Checker",
+    "🏆 Streak Tracker",
+    "📅 Monthly P&L",
+    "💸 Expenses",
+    "⬇️ Export",
+])
 st.sidebar.markdown("---")
+
 conn_ok = _get_conn() is not None
-if conn_ok:
-    st.sidebar.success("☁️ Storage: **Google Sheets (Live Cloud)**")
-else:
-    st.sidebar.error("⚠️ Google Sheets not connected.\nAdd secrets in Streamlit Cloud settings.")
+st.sidebar.success("☁️ Google Sheets **Connected**") if conn_ok else \
+st.sidebar.warning("⚠️ Sheets not connected — add secrets")
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Load data
-# ─────────────────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════
+# LOAD DATA
+# ═════════════════════════════════════════════════════════════════════════════
 df        = load_trades()
-stats     = get_stats(df)
 cap_data  = load_capital()
-cap_stats = get_capital_stats(cap_data)
-closed_df = df[df["Result"].isin(["WIN", "LOSS"])].copy() if not df.empty else pd.DataFrame()
+stats     = get_stats(df)
+closed_df = df[df["Result"].isin(["WIN","LOSS"])].copy() if not df.empty else pd.DataFrame()
+today_pnl = get_today_pnl(df)
+week_pnl  = get_week_pnl(df)
+month_pnl = get_month_pnl(df)
+streak    = get_streak(df)
+initial   = cap_data.get("initial_capital", 40000.0)
+current   = cap_data.get("current_capital", 40000.0)
+w_target  = cap_data.get("weekly_target",   2000.0)
+d_limit   = cap_data.get("daily_loss_limit",1000.0)
+m_target  = cap_data.get("monthly_target",  8000.0)
 
 
-# ═════════════════════════════════════════════════════════════════════════════
-# PAGE 1 — DASHBOARD
-# ═════════════════════════════════════════════════════════════════════════════
-if page == "📊 Dashboard":
-    st.title("📊 My Trading Dashboard")
-    st.caption("Your personal performance overview — updated live from Google Sheets.")
+# ══════════════════════════════════════════════════════════════════════════════
+# ██  PAGE: 🏠 COMMAND CENTRE
+# ══════════════════════════════════════════════════════════════════════════════
+if page == "🏠 Command Centre":
+    st.title("🏠 Trading Command Centre")
+    st.caption("Your complete trading business snapshot — updated live.")
     st.markdown("---")
 
-    remaining_pct = (cap_stats["current"] / cap_stats["initial"] * 100) if cap_stats["initial"] else 0
-    cap_d, cap_dc = pnl_delta(cap_stats["pnl"])
-    cc1, cc2, cc3, cc4, cc5 = st.columns(5)
-    cc1.metric("💰 Initial Capital",  "Rs {:,.0f}".format(cap_stats["initial"]))
-    cc2.metric("💵 Current Balance",  "Rs {:,.0f}".format(cap_stats["current"]), cap_d, delta_color=cap_dc)
-    cc3.metric("📉 Total P&L",        "Rs {:,.0f}".format(abs(cap_stats["pnl"])),
-               "{:.1f}%".format(cap_stats["pnl_pct"]),
-               delta_color="normal" if cap_stats["pnl"] >= 0 else "inverse")
-    cc4.metric("📅 Days Trading",     "{} days".format(cap_stats["days"]))
-    cc5.metric("🏦 Capital Remaining","{:.1f}%".format(remaining_pct),
-               delta_color="normal" if remaining_pct >= 80 else "inverse")
+    # ── Risk status banner ────────────────────────────────────────────────────
+    if today_pnl <= -d_limit:
+        st.error("🚨 **DAILY LOSS LIMIT HIT** — Rs {:,.0f} lost today. STOP TRADING for today.".format(abs(today_pnl)))
+    elif week_pnl >= w_target:
+        st.success("🎉 **WEEKLY TARGET ACHIEVED!** — Rs {:,.0f} profit this week. Consider stopping or trade very carefully.".format(week_pnl))
+    elif today_pnl < 0:
+        remaining_limit = d_limit + today_pnl
+        st.warning("⚠️ Today: Rs {:,.0f} loss. Rs {:,.0f} remaining before daily limit.".format(abs(today_pnl), remaining_limit))
+    else:
+        st.success("✅ Trading day looks good. Stay disciplined.")
 
-    prog_color = "🟢" if remaining_pct >= 80 else ("🟡" if remaining_pct >= 60 else "🔴")
-    st.progress(min(int(remaining_pct), 100),
-                text="{} Rs {:,.0f} remaining of Rs {:,.0f} ({}%)".format(
-                    prog_color, cap_stats["current"], cap_stats["initial"], round(remaining_pct, 1)))
+    # ── Key metrics ───────────────────────────────────────────────────────────
+    c1,c2,c3,c4,c5 = st.columns(5)
+    td, tdc = pnl_delta(today_pnl)
+    wd, wdc = pnl_delta(week_pnl)
+    md, mdc = pnl_delta(month_pnl)
+    c1.metric("📅 Today P&L",    "Rs {:,.0f}".format(today_pnl),  td, delta_color=tdc)
+    c2.metric("📆 This Week",    "Rs {:,.0f}".format(week_pnl),   wd, delta_color=wdc)
+    c3.metric("🗓️ This Month",   "Rs {:,.0f}".format(month_pnl),  md, delta_color=mdc)
+    c4.metric("💰 Capital",      "Rs {:,.0f}".format(current),
+              "{:+.1f}%".format((current-initial)/initial*100) if initial else "0%")
+    c5.metric("🏆 Streak",       "{} {}".format(streak["current"], streak["type"]),
+              "Current run")
     st.markdown("---")
 
-    k1, k2, k3, k4 = st.columns(4)
+    # ── Target progress ───────────────────────────────────────────────────────
+    st.subheader("🎯 Target Progress This Week")
+    w_pct = min(int(week_pnl / w_target * 100), 100) if w_target > 0 else 0
+    w_pct = max(w_pct, 0)
+    color = "🟢" if w_pct >= 100 else ("🟡" if w_pct >= 50 else "🔴")
+    st.progress(w_pct, text="{} Weekly: Rs {:,.0f} / Rs {:,.0f} ({:.0f}%)".format(
+        color, week_pnl, w_target, w_pct))
+
+    m_pct = min(int(month_pnl / m_target * 100), 100) if m_target > 0 else 0
+    m_pct = max(m_pct, 0)
+    color2 = "🟢" if m_pct >= 100 else ("🟡" if m_pct >= 50 else "🔴")
+    st.progress(m_pct, text="{} Monthly: Rs {:,.0f} / Rs {:,.0f} ({:.0f}%)".format(
+        color2, month_pnl, m_target, m_pct))
+
+    d_used = min(int(abs(today_pnl) / d_limit * 100), 100) if today_pnl < 0 and d_limit > 0 else 0
+    d_col  = "🔴" if d_used >= 80 else ("🟡" if d_used >= 50 else "🟢")
+    st.progress(d_used, text="{} Daily Risk: Rs {:,.0f} used of Rs {:,.0f} limit ({:.0f}%)".format(
+        d_col, abs(min(today_pnl,0)), d_limit, d_used))
+    st.markdown("---")
+
+    # ── Quick stats ───────────────────────────────────────────────────────────
+    k1,k2,k3,k4 = st.columns(4)
     k1.metric("Total Trades",  stats["total_trades"])
     k2.metric("Win Rate",      "{:.1f}%".format(stats["win_rate"]))
-    d, dc = pnl_delta(stats["total_pnl"])
-    k3.metric("Net P&L (All Time)", "Rs {:,.0f}".format(stats["total_pnl"]), d, delta_color=dc)
-    k4.metric("Reward : Risk", "{:.2f}".format(stats["reward_risk"]),
-              "Good" if stats["reward_risk"] >= 1.5 else "Needs improvement")
-
-    k5, k6, k7, k8 = st.columns(4)
-    k5.metric("Wins",        stats["wins"])
-    k6.metric("Losses",      stats["losses"], delta_color="inverse")
-    k7.metric("Best Trade",  "Rs {:,.0f}".format(stats["best_trade"]))
-    k8.metric("Worst Trade", "Rs {:,.0f}".format(stats["worst_trade"]))
+    k3.metric("Reward:Risk",   "{:.2f}x".format(stats["reward_risk"]),
+              "Good ✅" if stats["reward_risk"] >= 1.5 else "Improve ⚠️")
+    k4.metric("Max Drawdown",  "Rs {:,.0f}".format(abs(stats["max_drawdown"])))
     st.markdown("---")
 
+    # ── Last 5 trades ─────────────────────────────────────────────────────────
     if not closed_df.empty:
-        pnl_series = pd.to_numeric(closed_df["Net P&L"], errors="coerce").fillna(0)
-        col_left, col_right = st.columns([3, 2])
-        with col_left:
-            equity     = pnl_series.cumsum().reset_index(drop=True)
-            trade_nums = list(range(1, len(equity) + 1))
-            colors     = ["#26a69a" if v >= 0 else "#ef5350" for v in pnl_series]
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(
-                x=trade_nums, y=equity, mode="lines+markers",
-                line=dict(color="#3498db", width=2.5),
-                marker=dict(color=colors, size=9),
-                hovertemplate="Trade %{x}<br>Cumulative P&L: Rs %{y:,.0f}<extra></extra>",
-            ))
-            fig.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.3)")
-            fig.update_layout(template="plotly_dark", height=320, title="📈 Equity Curve",
-                              xaxis_title="Trade Number", yaxis_title="Cumulative P&L (Rs)",
-                              margin=dict(l=0, r=0, t=40, b=0))
-            st.plotly_chart(fig, width="stretch")
-        with col_right:
-            pie = go.Figure(go.Pie(
-                labels=["Wins", "Losses"], values=[stats["wins"], stats["losses"]],
-                marker=dict(colors=["#26a69a", "#ef5350"]), hole=0.5,
-                textinfo="label+percent",
-            ))
-            pie.update_layout(template="plotly_dark", height=320, title="🏆 Win / Loss Ratio",
-                              margin=dict(l=0, r=0, t=40, b=0), showlegend=False)
-            st.plotly_chart(pie, width="stretch")
-
-        if "Date" in closed_df.columns:
-            closed_df["Month"] = pd.to_datetime(closed_df["Date"], errors="coerce").dt.strftime("%b %Y")
-            monthly = closed_df.groupby("Month")["Net P&L"].apply(
-                lambda x: pd.to_numeric(x, errors="coerce").sum()).reset_index()
-            bar_colors = ["#26a69a" if v >= 0 else "#ef5350" for v in monthly["Net P&L"]]
-            bar_fig = go.Figure(go.Bar(
-                x=monthly["Month"], y=monthly["Net P&L"], marker_color=bar_colors,
-                text=["Rs {:,.0f}".format(v) for v in monthly["Net P&L"]], textposition="outside",
-            ))
-            bar_fig.update_layout(template="plotly_dark", height=300, title="📅 Monthly Net P&L",
-                                  xaxis_title="Month", yaxis_title="Net P&L (Rs)",
-                                  margin=dict(l=0, r=0, t=40, b=0))
-            st.plotly_chart(bar_fig, width="stretch")
-
-        st.markdown("#### 🕐 Last 5 Trades")
-        recent_cols = ["Trade #", "Date", "Symbol", "Option Type", "Strike",
-                       "Entry Price", "Exit Price", "Net P&L", "Result"]
-        st.dataframe(df[recent_cols].tail(5).sort_index(ascending=False),
-                     width="stretch", hide_index=True)
+        st.subheader("🕐 Last 5 Trades")
+        rc = ["Trade #","Date","Symbol","Option Type","Strike","Entry Price","Exit Price","Net P&L","Result"]
+        st.dataframe(df[rc].tail(5).sort_index(ascending=False), use_container_width=True, hide_index=True)
     else:
-        st.info("No closed trades yet. Go to **📓 Log Trade** to record your first trade!")
+        st.info("No trades yet. Use **📓 Log Trade** to record your first trade.")
 
 
-# ═════════════════════════════════════════════════════════════════════════════
-# PAGE 2 — MY CAPITAL
-# ═════════════════════════════════════════════════════════════════════════════
-elif page == "💰 My Capital":
-    st.title("💰 My Capital Tracker")
-    st.markdown("---")
-
-    remaining_pct = (cap_stats["current"] / cap_stats["initial"] * 100) if cap_stats["initial"] else 0
-    cap_d, cap_dc = pnl_delta(cap_stats["pnl"])
-    c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("💰 Initial Capital", "Rs {:,.0f}".format(cap_stats["initial"]))
-    c2.metric("💵 Current Balance", "Rs {:,.0f}".format(cap_stats["current"]), cap_d, delta_color=cap_dc)
-    c3.metric("📊 P&L",             "Rs {:,.0f}".format(cap_stats["pnl"]),
-              "{:.2f}%".format(cap_stats["pnl_pct"]),
-              delta_color="normal" if cap_stats["pnl"] >= 0 else "inverse")
-    c4.metric("📅 Days Trading",    "{} days".format(cap_stats["days"]))
-    c5.metric("🏦 Capital Left",    "{:.1f}%".format(remaining_pct),
-              delta_color="normal" if remaining_pct >= 80 else "inverse")
-
-    prog_color = "🟢" if remaining_pct >= 80 else ("🟡" if remaining_pct >= 60 else "🔴")
-    st.progress(min(int(remaining_pct), 100),
-                text="{} Rs {:,.0f} of Rs {:,.0f} remaining ({:.1f}%)".format(
-                    prog_color, cap_stats["current"], cap_stats["initial"], remaining_pct))
-    st.markdown("---")
-
-    with st.expander("⚙️ Update Capital Settings", expanded=False):
-        with st.form("capital_form"):
-            sf1, sf2, sf3 = st.columns(3)
-            new_initial = sf1.number_input("Initial Capital (Rs)",
-                                           value=float(cap_data.get("initial_capital", 40000)), step=1000.0, format="%.0f")
-            new_current = sf2.number_input("Current Balance (Rs)",
-                                           value=float(cap_data.get("current_capital", 40000)), step=100.0, format="%.0f")
-            new_start   = sf3.text_input("Start Date", value=cap_data.get("start_date", "2025-01-01"))
-            new_note    = st.text_input("Note", placeholder="e.g. Added Rs 10,000 top-up")
-            if st.form_submit_button("💾 Save Capital Settings"):
-                cap_data["initial_capital"] = new_initial
-                cap_data["current_capital"] = round(new_current, 2)
-                cap_data["start_date"]      = new_start
-                cap_data.setdefault("history", []).append({
-                    "date": datetime.now().strftime("%Y-%m-%d"),
-                    "balance": round(new_current, 2),
-                    "note": new_note if new_note else "Manual update",
-                })
-                save_capital(cap_data)
-                st.success("Capital updated! Current balance: Rs {:,.0f}".format(new_current))
-                st.rerun()
-
-    history = cap_stats.get("history", [])
-    if history:
-        hist_df = pd.DataFrame(history)
-        hist_df["date"]    = pd.to_datetime(hist_df["date"], errors="coerce")
-        hist_df["balance"] = pd.to_numeric(hist_df["balance"], errors="coerce")
-        hist_df = hist_df.sort_values("date").reset_index(drop=True)
-        fig_cap = go.Figure()
-        fig_cap.add_trace(go.Scatter(
-            x=hist_df["date"], y=hist_df["balance"], mode="lines+markers",
-            line=dict(color="#3498db", width=2.5), fill="tozeroy",
-            fillcolor="rgba(52,152,219,0.08)", marker=dict(size=8, color="#3498db"),
-            hovertemplate="%{x|%d %b %Y}<br>Balance: Rs %{y:,.0f}<extra></extra>",
-        ))
-        fig_cap.add_hline(y=cap_stats["initial"], line_dash="dash",
-                          line_color="rgba(255,255,255,0.4)",
-                          annotation_text="Initial: Rs {:,.0f}".format(cap_stats["initial"]),
-                          annotation_position="bottom right")
-        fig_cap.update_layout(template="plotly_dark", height=350,
-                              title="💵 Capital Balance Over Time",
-                              xaxis_title="Date", yaxis_title="Balance (Rs)",
-                              margin=dict(l=0, r=0, t=40, b=0))
-        st.plotly_chart(fig_cap, width="stretch")
-        st.subheader("📋 Balance History")
-        st.dataframe(hist_df[["date","balance","note"]].rename(
-            columns={"date":"Date","balance":"Balance (Rs)","note":"Note"}
-        ).sort_values("Date", ascending=False), width="stretch", hide_index=True)
-
-
-# ═════════════════════════════════════════════════════════════════════════════
-# PAGE 3 — LOG TRADE
-# ═════════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
+# ██  PAGE: 📓 LOG TRADE
+# ══════════════════════════════════════════════════════════════════════════════
 elif page == "📓 Log Trade":
     st.title("📓 Log a Trade")
-    st.caption("Every trade is saved permanently to Google Sheets ☁️")
+    st.caption("Every trade saved permanently to Google Sheets ☁️")
     st.markdown("---")
-
     with st.form("trade_form", clear_on_submit=True):
         st.subheader("Trade Details")
-        c1, c2, c3, c4 = st.columns(4)
-        f_symbol  = c1.text_input("Symbol",           value="NIFTY50")
-        f_type    = c2.selectbox("PUT / CALL",         ["PUT", "CALL"])
-        f_strike  = c3.number_input("Strike",          value=22500, step=50)
-        f_expiry  = c4.text_input("Expiry",            placeholder="e.g. 06 Jun 2025")
-
-        c5, c6, c7, c8 = st.columns(4)
-        f_entry   = c5.number_input("Entry Price (Rs)", value=0.0, step=0.5, format="%.2f")
-        f_exit    = c6.number_input("Exit Price (Rs) — 0 if still open", value=0.0, step=0.5, format="%.2f")
-        f_lots    = c7.number_input("Lots",            value=1, step=1, min_value=1)
-        f_lotsize = c8.number_input("Lot Size",        value=75, step=1, min_value=1)
-
+        c1,c2,c3,c4 = st.columns(4)
+        f_sym    = c1.text_input("Symbol",    value="NIFTY50")
+        f_type   = c2.selectbox("PUT / CALL", ["PUT","CALL"])
+        f_strike = c3.number_input("Strike",  value=22500, step=50)
+        f_expiry = c4.text_input("Expiry",    placeholder="e.g. 06 Jun 2025")
+        c5,c6,c7,c8 = st.columns(4)
+        f_entry   = c5.number_input("Entry Price (Rs)",         value=0.0, step=0.5, format="%.2f")
+        f_exit    = c6.number_input("Exit Price (Rs) — 0=OPEN", value=0.0, step=0.5, format="%.2f")
+        f_lots    = c7.number_input("Lots",    value=1, step=1, min_value=1)
+        f_lotsize = c8.number_input("Lot Size",value=75, step=1, min_value=1)
         st.subheader("Market Conditions at Entry")
-        m1, m2, m3, m4 = st.columns(4)
-        f_rsi    = m1.number_input("RSI at Entry",  value=50.0, step=0.1, format="%.1f")
-        f_adx    = m2.number_input("ADX at Entry",  value=25.0, step=0.1, format="%.1f")
-        f_st     = m3.selectbox("Supertrend",       ["BEARISH", "BULLISH"])
-        f_dsaid  = m4.selectbox("Dashboard Said",   ["WAIT", "PUT", "CALL"])
-
+        m1,m2,m3,m4 = st.columns(4)
+        f_rsi   = m1.number_input("RSI at Entry", value=50.0, step=0.1, format="%.1f")
+        f_adx   = m2.number_input("ADX at Entry", value=25.0, step=0.1, format="%.1f")
+        f_st    = m3.selectbox("Supertrend", ["BEARISH","BULLISH"])
+        f_dsaid = m4.selectbox("Dashboard Said", ["WAIT","PUT","CALL"])
         st.subheader("Notes & Learning")
-        n1, n2 = st.columns(2)
-        f_hold    = n1.text_input("Hold Time",       placeholder="e.g. 45 min")
-        f_lessons = n2.text_input("Lessons Learned", placeholder="e.g. Never enter when RSI < 35")
-        f_notes   = st.text_area("Additional Notes", placeholder="What did you observe?", height=80)
-
-        st.subheader("Charges")
-        ch1, ch2, ch3 = st.columns(3)
+        n1,n2 = st.columns(2)
+        f_hold    = n1.text_input("Hold Time",        placeholder="e.g. 45 min")
+        f_lessons = n2.text_input("Lessons Learned",  placeholder="e.g. Never enter RSI < 35")
+        f_notes   = st.text_area("Additional Notes",  placeholder="What did you observe?", height=60)
+        ch1,_,ch3 = st.columns(3)
         f_brok  = ch1.number_input("Brokerage (Rs)",    value=DEFAULT_BROKERAGE, step=1.0)
-        f_other = ch3.number_input("Other Charges (Rs)", value=DEFAULT_OTHER,    step=1.0)
-
-        submitted = st.form_submit_button("💾 Save Trade to Cloud", width="stretch")
-
+        f_other = ch3.number_input("Other Charges (Rs)",value=DEFAULT_OTHER, step=1.0)
+        submitted = st.form_submit_button("💾 Save Trade to Cloud", use_container_width=True)
     if submitted:
         if f_entry <= 0:
-            st.error("Entry Price must be greater than 0.")
+            st.error("Entry Price must be > 0.")
         else:
-            now     = datetime.now()
+            now = datetime.now()
             capital = round(f_entry * f_lots * f_lotsize, 2)
-            gross   = round((f_exit - f_entry) * f_lots * f_lotsize, 2) if f_exit > 0 else 0.0
-            stt     = round(f_exit * f_lots * f_lotsize * DEFAULT_STT_PCT / 100, 2) if f_exit > 0 else 0.0
-            other   = DEFAULT_OTHER if f_exit > 0 else 0.0
-            net     = round(gross - f_brok - stt - other, 2) if f_exit > 0 else 0.0
-            result  = "OPEN" if f_exit <= 0 else ("WIN" if net >= 0 else "LOSS")
+            gross   = round((f_exit-f_entry)*f_lots*f_lotsize,2) if f_exit>0 else 0.0
+            stt     = round(f_exit*f_lots*f_lotsize*DEFAULT_STT_PCT/100,2) if f_exit>0 else 0.0
+            other_c = DEFAULT_OTHER if f_exit>0 else 0.0
+            net     = round(gross-f_brok-stt-other_c,2) if f_exit>0 else 0.0
+            result  = "OPEN" if f_exit<=0 else ("WIN" if net>=0 else "LOSS")
             row = {
-                "Trade #":        _next_trade_num(df),
-                "Date":           now.strftime("%Y-%m-%d"),
-                "Time":           now.strftime("%H:%M"),
-                "Symbol":         f_symbol,
-                "Option Type":    f_type,
-                "Strike":         int(f_strike),
-                "Expiry":         f_expiry,
-                "Entry Price":    f_entry,
-                "Exit Price":     f_exit if f_exit > 0 else "",
-                "Lots":           int(f_lots),
-                "Lot Size":       int(f_lotsize),
-                "Capital Used":   capital,
-                "Gross P&L":      gross  if f_exit > 0 else "",
-                "Brokerage":      f_brok if f_exit > 0 else "",
-                "STT":            stt    if f_exit > 0 else "",
-                "Other Charges":  other  if f_exit > 0 else "",
-                "Net P&L":        net    if f_exit > 0 else "",
-                "Result":         result,
-                "Hold Time":      f_hold,
-                "Entry RSI":      round(f_rsi, 1) if f_rsi else "",
-                "Entry ADX":      round(f_adx, 1) if f_adx else "",
-                "Supertrend":     f_st,
-                "Dashboard Said": f_dsaid,
-                "Lessons Learned":f_lessons,
-                "Notes":          f_notes,
+                "Trade #":_next_trade_num(df),"Date":now.strftime("%Y-%m-%d"),
+                "Time":now.strftime("%H:%M"),"Symbol":f_sym,"Option Type":f_type,
+                "Strike":int(f_strike),"Expiry":f_expiry,"Entry Price":f_entry,
+                "Exit Price":f_exit if f_exit>0 else "","Lots":int(f_lots),
+                "Lot Size":int(f_lotsize),"Capital Used":capital,
+                "Gross P&L":gross if f_exit>0 else "","Brokerage":f_brok if f_exit>0 else "",
+                "STT":stt if f_exit>0 else "","Other Charges":other_c if f_exit>0 else "",
+                "Net P&L":net if f_exit>0 else "","Result":result,
+                "Hold Time":f_hold,"Entry RSI":round(f_rsi,1) if f_rsi else "",
+                "Entry ADX":round(f_adx,1) if f_adx else "","Supertrend":f_st,
+                "Dashboard Said":f_dsaid,"Lessons Learned":f_lessons,"Notes":f_notes,
             }
-            new_df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
-            save_trades(new_df)
-            emoji = "✅ WIN" if result == "WIN" else ("❌ LOSS" if result == "LOSS" else "📂 OPEN")
-            st.success("Trade #{} saved to cloud! {} | Net P&L: {}".format(
-                row["Trade #"], emoji,
-                "Rs {:,.0f}".format(net) if f_exit > 0 else "Open"))
-            st.cache_data.clear()
+            save_trades(pd.concat([df, pd.DataFrame([row])], ignore_index=True))
+            emoji = "✅ WIN" if result=="WIN" else ("❌ LOSS" if result=="LOSS" else "📂 OPEN")
+            st.success("Trade #{} saved! {} | Net P&L: {}".format(
+                row["Trade #"], emoji, "Rs {:,.0f}".format(net) if f_exit>0 else "Open"))
             st.rerun()
 
 
-# ═════════════════════════════════════════════════════════════════════════════
-# PAGE 4 — ALL TRADES
-# ═════════════════════════════════════════════════════════════════════════════
-
-# =============================================================================
-# PAGE 4 — ANGEL ONE SYNC
-# =============================================================================
+# ══════════════════════════════════════════════════════════════════════════════
+# ██  PAGE: 🔄 ANGEL ONE SYNC
+# ══════════════════════════════════════════════════════════════════════════════
 elif page == "🔄 Angel One Sync":
     st.title("🔄 Angel One Auto-Sync")
-    st.caption("Automatically fetch your executed trades from Angel One — no manual entry needed!")
+    st.caption("Fetch today's executed trades automatically — no typing needed!")
+    st.markdown("---")
+    try:
+        from angel_sync import render_angel_sync_panel
+        render_angel_sync_panel(load_fn=load_trades, save_fn=save_trades, columns=COLUMNS)
+    except Exception as e:
+        st.error("Angel Sync module error: {}".format(e))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ██  PAGE: 💰 CAPITAL MANAGER
+# ══════════════════════════════════════════════════════════════════════════════
+elif page == "💰 Capital Manager":
+    st.title("💰 Capital Manager")
+    st.caption("Track your trading capital, deposits, withdrawals, and growth.")
+    st.markdown("---")
+    remaining_pct = (current/initial*100) if initial else 0
+    cap_d, cap_dc = pnl_delta(current-initial)
+    c1,c2,c3,c4 = st.columns(4)
+    c1.metric("💰 Initial",  "Rs {:,.0f}".format(initial))
+    c2.metric("💵 Current",  "Rs {:,.0f}".format(current), cap_d, delta_color=cap_dc)
+    c3.metric("📊 Growth",   "{:+.2f}%".format((current-initial)/initial*100) if initial else "0%")
+    c4.metric("📅 Days",     "{} days".format((datetime.now()-datetime.strptime(cap_data.get("start_date","2025-01-01"),"%Y-%m-%d")).days))
+    prog_c = "🟢" if remaining_pct>=80 else ("🟡" if remaining_pct>=60 else "🔴")
+    st.progress(min(int(remaining_pct),100),
+                text="{} Rs {:,.0f} of Rs {:,.0f} remaining ({:.1f}%)".format(
+                    prog_c, current, initial, remaining_pct))
+    st.markdown("---")
+    with st.expander("⚙️ Update Capital & Targets", expanded=False):
+        with st.form("cap_form"):
+            r1c1,r1c2,r1c3 = st.columns(3)
+            ni = r1c1.number_input("Initial Capital (Rs)", value=float(initial), step=1000.0, format="%.0f")
+            nc = r1c2.number_input("Current Balance (Rs)", value=float(current), step=100.0,  format="%.0f")
+            ns = r1c3.text_input("Start Date", value=cap_data.get("start_date","2025-01-01"))
+            r2c1,r2c2,r2c3 = st.columns(3)
+            wt = r2c1.number_input("Weekly Target (Rs)",    value=float(w_target),  step=500.0,  format="%.0f")
+            dl = r2c2.number_input("Daily Loss Limit (Rs)", value=float(d_limit),   step=100.0,  format="%.0f")
+            mt = r2c3.number_input("Monthly Target (Rs)",   value=float(m_target),  step=1000.0, format="%.0f")
+            nn = st.text_input("Note", placeholder="e.g. Added Rs 10,000 top-up")
+            if st.form_submit_button("💾 Save"):
+                cap_data.update({"initial_capital":ni,"current_capital":round(nc,2),
+                                 "start_date":ns,"weekly_target":wt,
+                                 "daily_loss_limit":dl,"monthly_target":mt})
+                cap_data.setdefault("history",[]).append({
+                    "date":datetime.now().strftime("%Y-%m-%d"),
+                    "balance":round(nc,2),
+                    "note":nn if nn else "Manual update"})
+                save_capital(cap_data)
+                st.success("Saved! Balance: Rs {:,.0f}".format(nc))
+                st.rerun()
+    history = cap_data.get("history",[])
+    if history:
+        hdf = pd.DataFrame(history)
+        hdf["date"]    = pd.to_datetime(hdf["date"],errors="coerce")
+        hdf["balance"] = pd.to_numeric(hdf["balance"],errors="coerce")
+        hdf = hdf.sort_values("date").reset_index(drop=True)
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=hdf["date"],y=hdf["balance"],mode="lines+markers",
+                                  line=dict(color="#3498db",width=2.5),fill="tozeroy",
+                                  fillcolor="rgba(52,152,219,0.08)",
+                                  hovertemplate="%{x|%d %b %Y}<br>Rs %{y:,.0f}<extra></extra>"))
+        fig.add_hline(y=initial,line_dash="dash",line_color="rgba(255,255,255,0.4)",
+                      annotation_text="Initial: Rs {:,.0f}".format(initial))
+        fig.update_layout(template="plotly_dark",height=320,title="💵 Capital Over Time",
+                          margin=dict(l=0,r=0,t=40,b=0))
+        st.plotly_chart(fig, use_container_width=True)
+        st.dataframe(hdf[["date","balance","note"]].rename(
+            columns={"date":"Date","balance":"Balance (Rs)","note":"Note"}
+        ).sort_values("Date",ascending=False), use_container_width=True, hide_index=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ██  PAGE: 🎯 WEEKLY TARGETS
+# ══════════════════════════════════════════════════════════════════════════════
+elif page == "🎯 Weekly Targets":
+    st.title("🎯 Weekly & Monthly Target Tracker")
+    st.markdown("---")
+    c1,c2,c3 = st.columns(3)
+    c1.metric("📆 This Week",   "Rs {:,.0f}".format(week_pnl),
+              "Target: Rs {:,.0f}".format(w_target))
+    c2.metric("🗓️ This Month",  "Rs {:,.0f}".format(month_pnl),
+              "Target: Rs {:,.0f}".format(m_target))
+    c3.metric("📅 Today",       "Rs {:,.0f}".format(today_pnl),
+              "Limit: Rs {:,.0f}".format(d_limit))
     st.markdown("---")
 
-    _api_key   = st.secrets.get("angel_api_key",   "")
-    _client_id = st.secrets.get("angel_client_id", "")
-    _mpin      = st.secrets.get("angel_mpin",      "")
-    _totp      = st.secrets.get("angel_totp_key",  "")
-
-    days_back = st.selectbox("Fetch trades from last:", [1, 2, 3, 7], index=0,
-                              format_func=lambda x: "{} day{}".format(x, "s" if x > 1 else ""))
-
-    if st.button("🔄 Sync Now from Angel One", type="primary", use_container_width=True):
-        if not _api_key or not _client_id or not _mpin:
-            st.error("Angel One credentials not found in secrets. Please check your Streamlit Secrets settings.")
-        else:
-            with st.spinner("Connecting to Angel One..."):
-                try:
-                    import traceback
-                    from SmartApi import SmartConnect
-                    import pyotp
-                    obj = SmartConnect(api_key=_api_key)
-                    totp = pyotp.TOTP(_totp).now() if _totp else _mpin
-                    session = obj.generateSession(_client_id, _mpin, totp)
-                    if not session or session.get("status") is False:
-                        st.error("Login failed: {}".format(session.get("message", "Unknown error")))
-                    else:
-                        st.success("✅ Connected to Angel One!")
-                        trade_book = obj.tradeBook()
-                        raw_trades = trade_book.get("data", []) or [] if trade_book else []
-                        if not raw_trades:
-                            st.info("No trades found today in Angel One.")
-                        else:
-                            st.success("Found {} trades. Saving...".format(len(raw_trades)))
-                            saved, skipped, msg = render_angel_sync_panel(
-                                load_fn=load_trades, save_fn=save_trades, columns=COLUMNS,
-                            ) if False else (0, 0, "")
-                            # Process trades inline
-                            from collections import defaultdict
-                            def _parse(raw):
-                                sym = raw.get("tradingsymbol","")
-                                ot  = raw.get("optiontype","")
-                                if ot=="PE": ot="PUT"
-                                elif ot=="CE": ot="CALL"
-                                else: ot = "CALL" if "CE" in sym else ("PUT" if "PE" in sym else "")
-                                return {
-                                    "raw_symbol": sym, "option_type": ot,
-                                    "strike": str(int(float(raw.get("strikeprice",0) or 0))),
-                                    "qty": int(raw.get("fillsize",0) or 0),
-                                    "price": float(raw.get("fillprice",0) or 0),
-                                    "lot_size": int(raw.get("marketlot",0) or 0) or 65,
-                                    "expiry": raw.get("expirydate",""),
-                                    "order_type": raw.get("transactiontype",""),
-                                    "order_id": raw.get("orderid",""),
-                                }
-                            parsed = [_parse(t) for t in raw_trades]
-                            fo = [t for t in parsed if t["option_type"] in ["CALL","PUT"]]
-                            by_sym = defaultdict(list)
-                            for t in fo: by_sym[t["raw_symbol"]].append(t)
-                            existing = load_trades()
-                            ex_ids = set()
-                            if not existing.empty and "Notes" in existing.columns:
-                                ex_ids = set(existing["Notes"].astype(str).str.extract(r"OrderID:(\w+)")[0].dropna())
-                            rows = []; saved_n = 0
-                            def _nxt(d):
-                                if d.empty or d["Trade #"].isna().all(): return 1
-                                return int(pd.to_numeric(d["Trade #"],errors="coerce").max())+1
-                            for sym, trades in by_sym.items():
-                                buys  = [t for t in trades if t["order_type"]=="BUY"]
-                                sells = [t for t in trades if t["order_type"]=="SELL"]
-                                if not buys: continue
-                                buy = buys[0]; sell = sells[0] if sells else None
-                                if buy["order_id"] in ex_ids: continue
-                                ep = buy["price"]; xp = sell["price"] if sell else 0.0
-                                ls = buy["lot_size"] or 65
-                                lots = max(1, buy["qty"]//ls)
-                                gross = round((xp-ep)*lots*ls,2) if xp>0 else 0.0
-                                stt   = round(xp*lots*ls*0.05/100,2) if xp>0 else 0.0
-                                net   = round(gross-40-stt-15,2) if xp>0 else 0.0
-                                res   = "OPEN" if xp<=0 else ("WIN" if net>=0 else "LOSS")
-                                now   = datetime.now()
-                                row   = {c:"" for c in COLUMNS}
-                                row.update({"Trade #":_nxt(existing)+saved_n,"Date":now.strftime("%Y-%m-%d"),
-                                    "Time":now.strftime("%H:%M"),"Symbol":"NIFTY50","Option Type":buy["option_type"],
-                                    "Strike":int(buy["strike"]) if buy["strike"] else 0,"Expiry":buy["expiry"],
-                                    "Entry Price":ep,"Exit Price":xp if xp>0 else "","Lots":lots,"Lot Size":ls,
-                                    "Capital Used":round(ep*lots*ls,2),"Gross P&L":gross if xp>0 else "",
-                                    "Brokerage":40 if xp>0 else "","STT":stt if xp>0 else "",
-                                    "Other Charges":15 if xp>0 else "","Net P&L":net if xp>0 else "",
-                                    "Result":res,"Notes":"Auto-synced | OrderID:{}".format(buy["order_id"])})
-                                rows.append(row); saved_n+=1
-                            if rows:
-                                new_df = pd.concat([existing, pd.DataFrame(rows)], ignore_index=True)
-                                save_trades(new_df)
-                                st.success("✅ {} trade(s) synced to Google Sheets!".format(saved_n))
-                                st.rerun()
-                            else:
-                                st.info("No new trades to sync (already up to date).")
-                except Exception as e:
-                    st.error("Error: {}".format(str(e)))
-                    import traceback
-                    with st.expander("Details"):
-                        st.code(traceback.format_exc())
-
-elif page == "📋 All Trades":
-    st.title("📋 All Trades")
-    if df.empty:
-        st.info("No trades yet. Log your first trade from **📓 Log Trade**.")
+    # Weekly progress
+    w_pct = max(0, min(int(week_pnl/w_target*100) if w_target>0 else 0, 100))
+    w_col = "🟢" if w_pct>=100 else ("🟡" if w_pct>=50 else "🔴")
+    st.subheader("📆 Weekly Target")
+    st.progress(w_pct, text="{} Rs {:,.0f} earned / Rs {:,.0f} target ({:.0f}%)".format(
+        w_col, week_pnl, w_target, w_pct))
+    if week_pnl >= w_target:
+        st.success("🎉 Weekly target achieved! Great discipline — consider stopping or reducing size.")
+    elif week_pnl < 0:
+        st.error("📉 Negative week so far. Focus on small wins. Don't revenge trade.")
     else:
-        fc1, fc2, fc3 = st.columns(3)
-        syms    = ["All"] + sorted(df["Symbol"].dropna().unique().tolist())
-        filt_sym  = fc1.selectbox("Symbol",      syms)
-        filt_type = fc2.selectbox("Option Type", ["All", "PUT", "CALL"])
-        filt_res  = fc3.selectbox("Result",      ["All", "WIN", "LOSS", "OPEN"])
-        view = df.copy()
-        if filt_sym  != "All": view = view[view["Symbol"]      == filt_sym]
-        if filt_type != "All": view = view[view["Option Type"] == filt_type]
-        if filt_res  != "All": view = view[view["Result"]      == filt_res]
-        st.caption("{} trades shown".format(len(view)))
-        st.dataframe(view.sort_values("Trade #", ascending=False), width="stretch", hide_index=True)
-        if not view.empty:
-            pnl_tot = pd.to_numeric(view["Net P&L"], errors="coerce").sum()
-            d, dc   = pnl_delta(pnl_tot)
-            t1, t2  = st.columns(2)
-            t1.metric("Net P&L (filtered)", "Rs {:,.0f}".format(pnl_tot), d, delta_color=dc)
-            t2.metric("Capital Used (filtered)", "Rs {:,.0f}".format(
-                pd.to_numeric(view["Capital Used"], errors="coerce").sum()))
+        st.info("Rs {:,.0f} more needed to hit weekly target.".format(w_target - week_pnl))
+
+    st.markdown("---")
+
+    # Monthly progress
+    m_pct = max(0, min(int(month_pnl/m_target*100) if m_target>0 else 0, 100))
+    m_col = "🟢" if m_pct>=100 else ("🟡" if m_pct>=50 else "🔴")
+    st.subheader("🗓️ Monthly Target")
+    st.progress(m_pct, text="{} Rs {:,.0f} earned / Rs {:,.0f} target ({:.0f}%)".format(
+        m_col, month_pnl, m_target, m_pct))
+    st.markdown("---")
+
+    # Daily loss limit
+    d_used_pct = max(0,min(int(abs(today_pnl)/d_limit*100) if today_pnl<0 and d_limit>0 else 0,100))
+    d_col2 = "🔴" if d_used_pct>=80 else ("🟡" if d_used_pct>=50 else "🟢")
+    st.subheader("🛑 Daily Loss Limit")
+    st.progress(d_used_pct, text="{} Rs {:,.0f} lost today / Rs {:,.0f} limit ({:.0f}%)".format(
+        d_col2, abs(min(today_pnl,0)), d_limit, d_used_pct))
+    if d_used_pct >= 100:
+        st.error("🚨 STOP! Daily loss limit hit. No more trades today.")
+    elif d_used_pct >= 80:
+        st.warning("⚠️ Close to daily limit. One more bad trade = stop for today.")
+
+    # Weekly history chart
+    if not closed_df.empty:
+        st.markdown("---")
+        st.subheader("📊 Weekly P&L History")
+        try:
+            closed_df["_week"] = pd.to_datetime(closed_df["Date"],errors="coerce").dt.to_period("W")
+            weekly = closed_df.groupby("_week")["Net P&L"].apply(
+                lambda x: pd.to_numeric(x,errors="coerce").sum()).reset_index()
+            weekly["_week"] = weekly["_week"].astype(str)
+            bar_colors = ["#26a69a" if v>=0 else "#ef5350" for v in weekly["Net P&L"]]
+            fig = go.Figure(go.Bar(x=weekly["_week"],y=weekly["Net P&L"],
+                                   marker_color=bar_colors,
+                                   text=["Rs {:,.0f}".format(v) for v in weekly["Net P&L"]],
+                                   textposition="outside"))
+            fig.add_hline(y=w_target,line_dash="dash",line_color="#f39c12",
+                          annotation_text="Weekly Target")
+            fig.update_layout(template="plotly_dark",height=300,
+                               title="Weekly P&L vs Target",margin=dict(l=0,r=0,t=40,b=0))
+            st.plotly_chart(fig, use_container_width=True)
+        except Exception:
+            st.info("Not enough data for weekly chart yet.")
 
 
-# ═════════════════════════════════════════════════════════════════════════════
-# PAGE 5 — MONTHLY REPORT
-# ═════════════════════════════════════════════════════════════════════════════
-elif page == "📅 Monthly Report":
+# ══════════════════════════════════════════════════════════════════════════════
+# ██  PAGE: 📊 PERFORMANCE HUB
+# ══════════════════════════════════════════════════════════════════════════════
+elif page == "📊 Performance Hub":
+    st.title("📊 Performance Hub")
+    st.markdown("---")
+    if closed_df.empty:
+        st.info("No closed trades yet.")
+    else:
+        r1,r2,r3,r4 = st.columns(4)
+        r1.metric("Win Rate",    "{:.1f}%".format(stats["win_rate"]))
+        r2.metric("Reward:Risk", "{:.2f}x".format(stats["reward_risk"]))
+        r3.metric("Avg Win",     "Rs {:,.0f}".format(stats["avg_win"]))
+        r4.metric("Avg Loss",    "Rs {:,.0f}".format(abs(stats["avg_loss"])))
+        st.markdown("---")
+
+        tab1,tab2,tab3,tab4 = st.tabs(["🎯 Signal Accuracy","📅 Best Day","PUT vs CALL","By Symbol"])
+
+        with tab1:
+            st.subheader("🎯 Was the Dashboard Right for YOUR Trades?")
+            if "Dashboard Said" in closed_df.columns:
+                sig = closed_df.groupby("Dashboard Said").apply(lambda g: pd.Series({
+                    "Trades":    len(g),
+                    "Wins":      (g["Result"]=="WIN").sum(),
+                    "Losses":    (g["Result"]=="LOSS").sum(),
+                    "Win Rate %":round((g["Result"]=="WIN").sum()/len(g)*100,1),
+                    "Net P&L":   pd.to_numeric(g["Net P&L"],errors="coerce").sum().round(0),
+                })).reset_index()
+                st.dataframe(sig, use_container_width=True, hide_index=True)
+                best = sig.loc[sig["Win Rate %"].idxmax()] if not sig.empty else None
+                if best is not None:
+                    st.success("✅ Best signal: **{}** — {:.0f}% win rate on {} trades".format(
+                        best["Dashboard Said"], best["Win Rate %"], best["Trades"]))
+            else:
+                st.info("Log trades with 'Dashboard Said' field to see signal accuracy.")
+
+        with tab2:
+            st.subheader("📅 Which Day of Week You Perform Best")
+            try:
+                closed_df["_dow"] = pd.to_datetime(closed_df["Date"],errors="coerce").dt.day_name()
+                dow_order = ["Monday","Tuesday","Wednesday","Thursday","Friday"]
+                dg = closed_df.groupby("_dow").apply(lambda g: pd.Series({
+                    "Trades":    len(g),
+                    "Win Rate %":round((g["Result"]=="WIN").sum()/len(g)*100,1),
+                    "Net P&L":   pd.to_numeric(g["Net P&L"],errors="coerce").sum().round(0),
+                })).reset_index().rename(columns={"_dow":"Day"})
+                dg["Day"] = pd.Categorical(dg["Day"],categories=dow_order,ordered=True)
+                dg = dg.sort_values("Day")
+                bar_colors = ["#26a69a" if v>=0 else "#ef5350" for v in dg["Net P&L"]]
+                fig = go.Figure(go.Bar(x=dg["Day"],y=dg["Net P&L"],marker_color=bar_colors,
+                                       text=["Rs {:,.0f}".format(v) for v in dg["Net P&L"]],
+                                       textposition="outside"))
+                fig.update_layout(template="plotly_dark",height=280,
+                                   title="P&L by Day of Week",margin=dict(l=0,r=0,t=40,b=0))
+                st.plotly_chart(fig, use_container_width=True)
+                st.dataframe(dg, use_container_width=True, hide_index=True)
+            except Exception:
+                st.info("Not enough data yet.")
+
+        with tab3:
+            tg = closed_df.groupby("Option Type").apply(lambda g: pd.Series({
+                "Trades":    len(g),
+                "Wins":      (g["Result"]=="WIN").sum(),
+                "Win Rate %":round((g["Result"]=="WIN").sum()/len(g)*100,1),
+                "Net P&L":   pd.to_numeric(g["Net P&L"],errors="coerce").sum().round(0),
+            })).reset_index()
+            st.dataframe(tg, use_container_width=True, hide_index=True)
+
+        with tab4:
+            sg = closed_df.groupby("Symbol").apply(lambda g: pd.Series({
+                "Trades":    len(g),
+                "Wins":      (g["Result"]=="WIN").sum(),
+                "Win Rate %":round((g["Result"]=="WIN").sum()/len(g)*100,1),
+                "Net P&L":   pd.to_numeric(g["Net P&L"],errors="coerce").sum().round(0),
+            })).reset_index()
+            st.dataframe(sg, use_container_width=True, hide_index=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ██  PAGE: 📔 TRADE DIARY
+# ══════════════════════════════════════════════════════════════════════════════
+elif page == "📔 Trade Diary":
+    st.title("📔 Trade Diary")
+    st.caption("Write after every trading session. This is where real improvement happens.")
+    st.markdown("---")
+    st.info("Professional traders review every trade. It takes 5 minutes and is the #1 habit that separates consistent traders from gamblers.")
+
+    with st.form("diary_form", clear_on_submit=True):
+        d1,d2 = st.columns(2)
+        diary_date   = d1.date_input("Date", value=date.today())
+        diary_result = d2.selectbox("Overall Session", ["Profitable","Break-even","Loss","Did not trade"])
+
+        e1,e2,e3 = st.columns(3)
+        emotion_before = e1.selectbox("Emotion BEFORE trading",
+            ["Calm & focused","Slightly anxious","Greedy (wanted to make money fast)",
+             "Fearful (worried about loss)","Overconfident","Tired/distracted"])
+        emotion_during = e2.selectbox("Emotion DURING trade",
+            ["Calm","Anxious","Excited","Panicked","Disciplined","Impatient"])
+        emotion_after  = e3.selectbox("Emotion AFTER trade",
+            ["Satisfied","Disappointed","Relieved","Regretful","Neutral","Overjoyed"])
+
+        followed_plan = st.radio("Did you follow your trading plan 100%?",
+                                 ["Yes ✅","Mostly — small deviation","No ❌"], horizontal=True)
+        best_decision  = st.text_area("Best decision you made today", height=60,
+                                       placeholder="e.g. Waited for ADX > 25 before entering")
+        worst_decision = st.text_area("Worst decision / mistake today", height=60,
+                                       placeholder="e.g. Entered before RSI confirmed")
+        lesson         = st.text_area("Key lesson for tomorrow", height=60,
+                                       placeholder="e.g. Never trade in first 30 minutes")
+        tomorrow_rule  = st.text_input("One rule I will follow tomorrow",
+                                        placeholder="e.g. Set SL before entry — no exceptions")
+
+        if st.form_submit_button("💾 Save Diary Entry", use_container_width=True):
+            entry = {
+                "date":           str(diary_date),
+                "result":         diary_result,
+                "emotion_before": emotion_before,
+                "emotion_during": emotion_during,
+                "emotion_after":  emotion_after,
+                "followed_plan":  followed_plan,
+                "best_decision":  best_decision,
+                "worst_decision": worst_decision,
+                "lesson":         lesson,
+                "tomorrow_rule":  tomorrow_rule,
+            }
+            diary = json.loads(st.session_state.get("diary_json","[]"))
+            diary.append(entry)
+            st.session_state["diary_json"] = json.dumps(diary)
+            st.success("✅ Diary entry saved for {}!".format(diary_date))
+
+    st.markdown("---")
+    st.subheader("📚 Previous Diary Entries")
+    diary_entries = json.loads(st.session_state.get("diary_json","[]"))
+    if diary_entries:
+        for e in reversed(diary_entries[-5:]):
+            with st.expander("{} — {}".format(e["date"], e["result"])):
+                c1,c2,c3 = st.columns(3)
+                c1.write("**Before:** {}".format(e["emotion_before"]))
+                c2.write("**During:** {}".format(e["emotion_during"]))
+                c3.write("**After:** {}".format(e["emotion_after"]))
+                st.write("**Followed plan:** {}".format(e["followed_plan"]))
+                st.write("**Best decision:** {}".format(e["best_decision"]))
+                st.write("**Mistake:** {}".format(e["worst_decision"]))
+                st.write("**Lesson:** {}".format(e["lesson"]))
+                st.write("**Tomorrow's rule:** {}".format(e["tomorrow_rule"]))
+    else:
+        st.info("No diary entries yet. Start writing after your next trading session!")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ██  PAGE: ✅ RULES CHECKER
+# ══════════════════════════════════════════════════════════════════════════════
+elif page == "✅ Rules Checker":
+    st.title("✅ Rules Checker")
+    st.caption("Score yourself before and after every trade. Only trade when score is 8/10 or higher.")
+    st.markdown("---")
+    st.subheader("Pre-Trade Rules Score")
+    st.markdown("Check every rule before entering a trade:")
+    scores = []
+    for i, rule in enumerate(TRADING_RULES):
+        checked = st.checkbox("**Rule {}:** {}".format(i+1, rule), key="rule_{}".format(i))
+        scores.append(checked)
+    total_score = sum(scores)
+    score_pct   = int(total_score / len(TRADING_RULES) * 100)
+    st.markdown("---")
+    if total_score >= 8:
+        st.success("✅ **Score: {}/10 ({:.0f}%)** — You are ready to trade!".format(total_score, score_pct))
+    elif total_score >= 6:
+        st.warning("⚠️ **Score: {}/10 ({:.0f}%)** — Borderline. Fix the missing rules first.".format(total_score, score_pct))
+    else:
+        st.error("❌ **Score: {}/10 ({:.0f}%)** — DO NOT TRADE. Too many rules not followed.".format(total_score, score_pct))
+    st.progress(score_pct)
+    failed = [TRADING_RULES[i] for i,v in enumerate(scores) if not v]
+    if failed:
+        st.markdown("**Rules not followed:**")
+        for r in failed:
+            st.markdown("❌ " + r)
+    st.markdown("---")
+    st.subheader("📊 Why rules matter:")
+    st.markdown("""
+| Score | Action |
+|-------|--------|
+| 10/10 | ✅ Trade with full confidence |
+| 8–9/10 | ✅ Trade — you are prepared |
+| 6–7/10 | ⚠️ Trade with half lot size only |
+| 0–5/10 | ❌ Do not trade — wait for better setup |
+    """)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ██  PAGE: 🏆 STREAK TRACKER
+# ══════════════════════════════════════════════════════════════════════════════
+elif page == "🏆 Streak Tracker":
+    st.title("🏆 Streak Tracker")
+    st.caption("Consistency is the edge. Track your winning and losing streaks.")
+    st.markdown("---")
+    c1,c2,c3,c4 = st.columns(4)
+    streak_icon = "🔥" if streak["type"]=="WIN" else ("💔" if streak["type"]=="LOSS" else "—")
+    c1.metric("Current Streak",  "{} {} {}".format(streak_icon, streak["current"], streak["type"]))
+    c2.metric("Longest Win Run",  "{} trades".format(streak["longest_win"]))
+    c3.metric("Longest Loss Run", "{} trades".format(streak["longest_loss"]))
+    c4.metric("Consistency",
+              "{:.0f}%".format(stats["win_rate"]) if stats["total_trades"] > 0 else "—",
+              "Win Rate")
+    st.markdown("---")
+    if streak["type"] == "WIN" and streak["current"] >= 3:
+        st.success("🔥 {} win streak! Stay disciplined — don't increase size just because you're winning.".format(streak["current"]))
+    elif streak["type"] == "LOSS" and streak["current"] >= 2:
+        st.error("💔 {} loss streak. STOP and review. Do not revenge trade. Come back tomorrow fresh.".format(streak["current"]))
+    elif streak["type"] == "LOSS" and streak["current"] >= 3:
+        st.error("🚨 {} consecutive losses — MANDATORY break. Review your setup completely before next trade.".format(streak["current"]))
+
+    if not closed_df.empty:
+        st.subheader("📈 Trade-by-Trade Result History")
+        results = closed_df.sort_values("Trade #")["Result"].tolist()
+        colors  = ["#26a69a" if r=="WIN" else "#ef5350" for r in results]
+        vals    = [1 if r=="WIN" else -1 for r in results]
+        fig = go.Figure(go.Bar(
+            x=list(range(1,len(vals)+1)), y=vals, marker_color=colors,
+            text=results, textposition="outside",
+            hovertemplate="Trade %{x}: %{text}<extra></extra>",
+        ))
+        fig.update_layout(template="plotly_dark",height=250,
+                          title="Win / Loss Sequence",yaxis=dict(range=[-1.5,1.5],showticklabels=False),
+                          xaxis_title="Trade Number",margin=dict(l=0,r=0,t=40,b=0))
+        st.plotly_chart(fig, use_container_width=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ██  PAGE: 📅 MONTHLY P&L
+# ══════════════════════════════════════════════════════════════════════════════
+elif page == "📅 Monthly P&L":
     st.title("📅 Monthly P&L Report")
     st.markdown("---")
     if closed_df.empty:
         st.info("No closed trades yet.")
     else:
-        closed_df["_month"] = pd.to_datetime(closed_df["Date"], errors="coerce").dt.to_period("M")
-        months    = sorted(closed_df["_month"].dropna().unique(), reverse=True)
-        sel_month = st.selectbox("Select Month",
-                                 options=[str(m) for m in months] + ["All Time"], index=0)
-        view = closed_df.copy() if sel_month == "All Time" else \
-               closed_df[closed_df["_month"].astype(str) == sel_month].copy()
-        title_str = sel_month
-        pnl_s   = pd.to_numeric(view["Net P&L"],      errors="coerce").fillna(0)
-        gross_w = pd.to_numeric(view[view["Result"] == "WIN"]["Gross P&L"],  errors="coerce").sum()
-        gross_l = pd.to_numeric(view[view["Result"] == "LOSS"]["Gross P&L"], errors="coerce").sum()
-        brok    = pd.to_numeric(view["Brokerage"],     errors="coerce").sum()
-        stt_v   = pd.to_numeric(view["STT"],           errors="coerce").sum()
-        other   = pd.to_numeric(view["Other Charges"], errors="coerce").sum()
+        closed_df["_month"] = pd.to_datetime(closed_df["Date"],errors="coerce").dt.to_period("M")
+        months = sorted(closed_df["_month"].dropna().unique(), reverse=True)
+        sel    = st.selectbox("Select Month", [str(m) for m in months]+["All Time"])
+        view   = closed_df.copy() if sel=="All Time" else \
+                 closed_df[closed_df["_month"].astype(str)==sel].copy()
+        pnl_s   = pd.to_numeric(view["Net P&L"],     errors="coerce").fillna(0)
+        gross_w = pd.to_numeric(view[view["Result"]=="WIN"]["Gross P&L"],  errors="coerce").sum()
+        gross_l = pd.to_numeric(view[view["Result"]=="LOSS"]["Gross P&L"], errors="coerce").sum()
+        brok    = pd.to_numeric(view["Brokerage"],    errors="coerce").sum()
+        stt_v   = pd.to_numeric(view["STT"],          errors="coerce").sum()
+        other_v = pd.to_numeric(view["Other Charges"],errors="coerce").sum()
         net     = pnl_s.sum()
-        cap     = pd.to_numeric(view["Capital Used"],  errors="coerce").sum()
-        w_count = (view["Result"] == "WIN").sum()
-        l_count = (view["Result"] == "LOSS").sum()
-        total   = len(view)
-        st.subheader("📄 P&L Statement — {}".format(title_str))
+        cap     = pd.to_numeric(view["Capital Used"], errors="coerce").sum()
+        wc      = (view["Result"]=="WIN").sum(); lc = (view["Result"]=="LOSS").sum(); tot = len(view)
+        cls     = "pnl-pos" if net>=0 else "pnl-neg"
         st.markdown("""
 <style>
 .pnl-box{{background:#1e2130;border-radius:10px;padding:20px 30px;font-family:monospace;font-size:15px;line-height:2.0}}
@@ -650,9 +833,9 @@ elif page == "📅 Monthly Report":
 .pnl-head{{color:#3498db;font-weight:bold;font-size:16px}}.pnl-div{{border-top:1px solid #444;margin:8px 0}}
 </style>
 <div class="pnl-box">
-<span class="pnl-head">TRADING P&L STATEMENT — {title}</span><br>
+<span class="pnl-head">P&L STATEMENT — {title}</span><br>
 <div class="pnl-div"></div>
-Total Trades: <b>{total}</b> &nbsp; Wins: <span class="pnl-pos">{wins}</span> &nbsp; Losses: <span class="pnl-neg">{losses}</span> &nbsp; Win Rate: <b>{wr:.1f}%</b>
+Trades: <b>{tot}</b> &nbsp; Wins: <span class="pnl-pos">{wc}</span> &nbsp; Losses: <span class="pnl-neg">{lc}</span> &nbsp; Win Rate: <b>{wr:.1f}%</b>
 <div class="pnl-div"></div>
 Gross Revenue : <span class="pnl-pos">+Rs {gw:,.2f}</span><br>
 Gross Loss    : <span class="pnl-neg"> Rs {gl:,.2f}</span><br>
@@ -663,109 +846,61 @@ Other Charges : <span class="pnl-neg"> Rs {other:,.2f}</span><br>
 <div class="pnl-div"></div>
 <b>NET PROFIT / LOSS : <span class="{cls}">Rs {net:,.2f}</span></b><br>
 <div class="pnl-div"></div>
-Total Capital Used : Rs {cap:,.2f}
-</div>""".format(title=title_str, total=total, wins=w_count, losses=l_count,
-                 wr=(w_count/total*100) if total else 0,
-                 gw=gross_w, gl=abs(gross_l), brok=brok, stt=stt_v,
-                 other=other, net=net, cap=cap,
-                 cls="pnl-pos" if net >= 0 else "pnl-neg"),
-                    unsafe_allow_html=True)
+Capital Used : Rs {cap:,.2f}
+</div>""".format(title=sel,tot=tot,wc=wc,lc=lc,wr=(wc/tot*100) if tot else 0,
+                 gw=gross_w,gl=abs(gross_l),brok=brok,stt=stt_v,other=other_v,
+                 net=net,cap=cap,cls=cls), unsafe_allow_html=True)
         st.markdown("---")
         st.dataframe(view[["Trade #","Date","Symbol","Option Type","Strike",
-                            "Entry Price","Exit Price","Lots","Capital Used",
-                            "Net P&L","Result"]].sort_values("Trade #", ascending=False),
-                     width="stretch", hide_index=True)
+                            "Entry Price","Exit Price","Lots","Net P&L","Result"]
+                    ].sort_values("Trade #",ascending=False), use_container_width=True, hide_index=True)
 
 
-# ═════════════════════════════════════════════════════════════════════════════
-# PAGE 6 — PERFORMANCE
-# ═════════════════════════════════════════════════════════════════════════════
-elif page == "📈 Performance":
-    st.title("📈 Performance Analysis")
-    st.markdown("---")
-    if closed_df.empty:
-        st.info("No closed trades yet.")
-    else:
-        s = stats
-        r1c1, r1c2, r1c3, r1c4 = st.columns(4)
-        r1c1.metric("Total Trades", s["total_trades"])
-        r1c2.metric("Win Rate",     "{:.1f}%".format(s["win_rate"]))
-        r1c3.metric("Avg Win",      "Rs {:,.0f}".format(s["avg_win"]))
-        r1c4.metric("Avg Loss",     "Rs {:,.0f}".format(abs(s["avg_loss"])))
-        r2c1, r2c2, r2c3, r2c4 = st.columns(4)
-        r2c1.metric("Reward:Risk",  "{:.2f}x".format(s["reward_risk"]))
-        r2c2.metric("Max Drawdown", "Rs {:,.0f}".format(abs(s["max_drawdown"])))
-        r2c3.metric("Best Trade",   "Rs {:,.0f}".format(s["best_trade"]))
-        r2c4.metric("Worst Trade",  "Rs {:,.0f}".format(s["worst_trade"]))
-        st.markdown("---")
-        tab_sym, tab_type = st.tabs(["By Symbol", "PUT vs CALL"])
-        with tab_sym:
-            sg = closed_df.groupby("Symbol").apply(lambda g: pd.Series({
-                "Trades":    len(g),
-                "Wins":      (g["Result"] == "WIN").sum(),
-                "Net P&L":   pd.to_numeric(g["Net P&L"], errors="coerce").sum().round(2),
-                "Win Rate %":round((g["Result"] == "WIN").sum() / len(g) * 100, 1),
-            })).reset_index()
-            st.dataframe(sg, width="stretch", hide_index=True)
-        with tab_type:
-            tg = closed_df.groupby("Option Type").apply(lambda g: pd.Series({
-                "Trades":    len(g),
-                "Wins":      (g["Result"] == "WIN").sum(),
-                "Net P&L":   pd.to_numeric(g["Net P&L"], errors="coerce").sum().round(2),
-                "Win Rate %":round((g["Result"] == "WIN").sum() / len(g) * 100, 1),
-            })).reset_index()
-            st.dataframe(tg, width="stretch", hide_index=True)
-
-
-# ═════════════════════════════════════════════════════════════════════════════
-# PAGE 7 — EXPENSES
-# ═════════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
+# ██  PAGE: 💸 EXPENSES
+# ══════════════════════════════════════════════════════════════════════════════
 elif page == "💸 Expenses":
     st.title("💸 Charges & Expenses")
     st.markdown("---")
     if closed_df.empty:
         st.info("No closed trades yet.")
     else:
-        e1, e2, e3, e4 = st.columns(4)
+        e1,e2,e3,e4 = st.columns(4)
         e1.metric("Total Brokerage",    "Rs {:,.2f}".format(stats["total_brokerage"]))
         e2.metric("Total STT",          "Rs {:,.2f}".format(pd.to_numeric(closed_df["STT"],errors="coerce").sum()))
         e3.metric("Other Charges",      "Rs {:,.2f}".format(pd.to_numeric(closed_df["Other Charges"],errors="coerce").sum()))
         e4.metric("Total Charges Paid", "Rs {:,.2f}".format(stats["total_charges"]))
-        gross_pnl = pd.to_numeric(closed_df["Gross P&L"], errors="coerce").sum()
-        fig_exp = go.Figure(go.Bar(
-            x=["Gross P&L", "Total Charges", "Net P&L"],
-            y=[gross_pnl, -stats["total_charges"], stats["total_pnl"]],
+        gross = pd.to_numeric(closed_df["Gross P&L"],errors="coerce").sum()
+        fig = go.Figure(go.Bar(
+            x=["Gross P&L","Charges","Net P&L"],
+            y=[gross,-stats["total_charges"],stats["total_pnl"]],
             marker_color=["#3498db","#e74c3c","#26a69a" if stats["total_pnl"]>=0 else "#ef5350"],
-            text=["Rs {:,.0f}".format(v) for v in [gross_pnl, stats["total_charges"], stats["total_pnl"]]],
-            textposition="outside",
-        ))
-        fig_exp.update_layout(template="plotly_dark", height=350,
-                              title="Gross P&L vs Charges vs Net P&L",
-                              yaxis_title="Amount (Rs)", margin=dict(l=0,r=0,t=40,b=0))
-        st.plotly_chart(fig_exp, width="stretch")
+            text=["Rs {:,.0f}".format(v) for v in [gross,stats["total_charges"],stats["total_pnl"]]],
+            textposition="outside"))
+        fig.update_layout(template="plotly_dark",height=320,title="Gross vs Charges vs Net",
+                          margin=dict(l=0,r=0,t=40,b=0))
+        st.plotly_chart(fig, use_container_width=True)
+        st.info("💡 You are paying Rs {:,.0f} in charges per trade on average. Every rupee saved in charges is direct profit.".format(
+            stats["total_charges"] / max(stats["total_trades"],1)))
 
 
-# ═════════════════════════════════════════════════════════════════════════════
-# PAGE 8 — EXPORT
-# ═════════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
+# ██  PAGE: ⬇️ EXPORT
+# ══════════════════════════════════════════════════════════════════════════════
 elif page == "⬇️ Export":
     st.title("⬇️ Export Reports")
     st.markdown("---")
     if df.empty:
         st.info("No trades yet to export.")
     else:
-        csv_bytes = df.to_csv(index=False).encode("utf-8")
         today = datetime.now().strftime("%Y%m%d")
-        st.download_button(
-            label="⬇️ Download CSV (All Trades)",
-            data=csv_bytes,
-            file_name="My_Trades_{}.csv".format(today),
-            mime="text/csv",
-            width="stretch",
-        )
-        st.info("Your data is safely stored in Google Sheets ☁️ — no laptop needed!")
+        st.download_button("⬇️ Download All Trades (CSV)",
+                           data=df.to_csv(index=False).encode("utf-8"),
+                           file_name="My_Trades_{}.csv".format(today),
+                           mime="text/csv", use_container_width=True)
+        st.info("Your data is safely in Google Sheets ☁️ — this is just a backup copy.")
 
 
-# Footer
+# ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown("---")
-st.caption("📒 My Personal Trading Records | Cloud Edition | Not financial advice")
+st.caption("📒 Trading Management System | Cloud Edition | Not financial advice")
