@@ -1,5 +1,5 @@
 """
-cloud_data.py â€” Supabase backend for persistent cloud storage.
+cloud_data.py — Supabase backend for persistent cloud storage.
 All trades and capital are stored in Supabase (free, no card needed).
 Falls back to in-memory storage if Supabase is not configured yet.
 """
@@ -8,7 +8,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-# â”€â”€ Column schema â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Column schema ─────────────────────────────────────────────────────────────
 TRADE_COLUMNS = [
     "Trade #", "Date", "Time", "Symbol", "Option Type", "Strike", "Expiry",
     "Entry Price", "Exit Price", "Lots", "Lot Size", "Capital Used",
@@ -19,7 +19,7 @@ TRADE_COLUMNS = [
 
 CAPITAL_COLUMNS = ["Date", "Balance", "Note"]
 
-# Display name â†’ Supabase column name
+# Display name → Supabase column name
 COL_TO_DB = {
     "Trade #":        "trade_num",
     "Date":           "date",
@@ -47,7 +47,7 @@ COL_TO_DB = {
     "Lessons Learned":"lessons_learned",
     "Notes":          "notes",
 }
-# Reverse map: Supabase â†’ display
+# Reverse map: Supabase → display
 DB_TO_COL = {v: k for k, v in COL_TO_DB.items()}
 
 DEFAULT_BROKERAGE = 40.0
@@ -55,7 +55,7 @@ DEFAULT_STT_PCT   = 0.05
 DEFAULT_OTHER     = 15.0
 
 
-# â”€â”€ Supabase connection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Supabase connection ────────────────────────────────────────────────────────
 
 def _get_client():
     """Return authenticated Supabase client using Streamlit secrets."""
@@ -73,7 +73,7 @@ def _is_cloud() -> bool:
         return False
 
 
-# â”€â”€ Trades â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Trades ─────────────────────────────────────────────────────────────────────
 
 @st.cache_data(ttl=30)
 def load_trades() -> pd.DataFrame:
@@ -166,7 +166,7 @@ def add_trade(
     new_df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
     _save_trades(new_df)
 
-    # â”€â”€ Auto-update capital when trade is closed â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Auto-update capital when trade is closed ───────────────────────────────
     if result in ("WIN", "LOSS"):
         cap_df   = load_capital_history()
         current  = float(cap_df["Balance"].iloc[-1]) if not cap_df.empty else 40000.0
@@ -219,7 +219,7 @@ def delete_trade(trade_num: int) -> str:
     return "deleted"
 
 
-# â”€â”€ Capital â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Capital ────────────────────────────────────────────────────────────────────
 
 @st.cache_data(ttl=30)
 def load_capital_history() -> pd.DataFrame:
@@ -297,7 +297,7 @@ def get_capital_stats() -> dict:
     }
 
 
-# â”€â”€ Stats â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Stats ──────────────────────────────────────────────────────────────────────
 
 def get_stats(df: pd.DataFrame = None) -> dict:
     if df is None:
@@ -339,7 +339,7 @@ def get_stats(df: pd.DataFrame = None) -> dict:
     }
 
 
-# â”€â”€ Excel export â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Excel export ───────────────────────────────────────────────────────────────
 
 def build_excel_report(df: pd.DataFrame) -> bytes:
     from io import BytesIO
