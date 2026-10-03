@@ -11,7 +11,7 @@ from datetime import datetime
 from io import BytesIO
 
 from cloud_data import (
-    load_trades, add_trade, get_stats,
+    load_trades, add_trade, delete_trade, get_stats,
     load_capital_history, update_capital, get_capital_stats,
     build_excel_report, _is_cloud,
     DEFAULT_BROKERAGE, DEFAULT_OTHER,
@@ -324,22 +324,61 @@ elif page == "📓 Log Trade":
         st.warning("⚠️ Please fill in an **Entry Price > 0** before clicking save.")
 
     if st.button("💾 Save Trade to Cloud Records", use_container_width=True, type="primary"):
-            if f_entry <= 0:
-                st.error("Entry price must be greater than 0.")
+        if f_entry <= 0:
+            st.error("Entry price must be greater than 0.")
+        else:
+            saved = add_trade(
+                symbol=f_sym, option_type=f_type, strike=int(f_strike),
+                expiry=f_expiry, entry_price=f_entry, exit_price=f_exit,
+                lots=int(f_lots), lot_size=int(f_lsize),
+                entry_rsi=f_rsi, entry_adx=f_adx,
+                supertrend=f_st, dashboard_said=f_dsaid,
+                hold_time=f_hold, lessons=f_lesson, notes=f_notes,
+                brokerage=f_brok,
+            )
+            em = "✅ WIN" if saved["Result"]=="WIN" else ("❌ LOSS" if saved["Result"]=="LOSS" else "📂 OPEN")
+            new_bal_msg = ""
+            if saved["Result"] in ("WIN", "LOSS"):
+                new_bal_msg = " | New Balance: Rs {:,.0f}".format(
+                    cap_stats["current"] + float(saved.get("Net P&L", 0) or 0))
+            st.success("Trade #{} saved! {}{}".format(
+                saved["Trade #"], em, new_bal_msg))
+            st.rerun()
+
+    # ── Recent Trades Log + Delete ─────────────────────────────────────────────
+    st.markdown("---")
+    st.subheader("📋 Recent Trades Log")
+    fresh_df = load_trades()
+    if fresh_df.empty:
+        st.info("No trades logged yet.")
+    else:
+        show_cols = ["Trade #", "Date", "Symbol", "Option Type", "Strike",
+                     "Entry Price", "Exit Price", "Lots", "Net P&L", "Result"]
+        recent = fresh_df[show_cols].sort_values("Trade #", ascending=False).head(20)
+        st.dataframe(recent, use_container_width=True, hide_index=True)
+
+        st.markdown("#### 🗑️ Delete a Trade")
+        st.caption("⚠️ Deleting a closed trade will also reverse its impact on your capital balance.")
+        del_col1, del_col2 = st.columns([2, 1])
+        trade_options = fresh_df.sort_values("Trade #", ascending=False)["Trade #"].tolist()
+        trade_labels  = [
+            "#{} — {} {} {} | {}".format(
+                int(r["Trade #"]), r["Date"], r["Symbol"],
+                r["Option Type"],  r["Result"])
+            for _, r in fresh_df.sort_values("Trade #", ascending=False).iterrows()
+        ]
+        sel_label = del_col1.selectbox("Select trade to delete", trade_labels, key="cr_del_sel")
+        sel_num   = int(sel_label.split(" — ")[0].replace("#", "").strip())
+
+        if del_col2.button("🗑️ Delete Selected Trade", type="secondary", use_container_width=True, key="cr_del_btn"):
+            status = delete_trade(sel_num)
+            if status == "deleted_with_capital":
+                st.success("✅ Trade #{} deleted and capital balance reversed.".format(sel_num))
+            elif status == "deleted":
+                st.success("✅ Trade #{} deleted (OPEN trade — no capital change).".format(sel_num))
             else:
-                saved = add_trade(
-                    symbol=f_sym, option_type=f_type, strike=int(f_strike),
-                    expiry=f_expiry, entry_price=f_entry, exit_price=f_exit,
-                    lots=int(f_lots), lot_size=int(f_lsize),
-                    entry_rsi=f_rsi, entry_adx=f_adx,
-                    supertrend=f_st, dashboard_said=f_dsaid,
-                    hold_time=f_hold, lessons=f_lesson, notes=f_notes,
-                    brokerage=f_brok,
-                )
-                em = "✅ WIN" if saved["Result"]=="WIN" else ("❌ LOSS" if saved["Result"]=="LOSS" else "📂 OPEN")
-                st.success("Trade #{} saved! {} | Net P&L: {}".format(
-                    saved["Trade #"], em,
-                    "Rs {:,.0f}".format(saved["Net P&L"]) if saved["Net P&L"] != "" else "Open"))
+                st.error(status)
+            st.rerun()
 
 
 # ═════════════════════════════════════════════════════════════════════════════
