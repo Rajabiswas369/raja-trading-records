@@ -104,41 +104,48 @@ def _save_trades(df: pd.DataFrame) -> None:
     if not _is_cloud():
         st.session_state.trades_df = df.copy()
         return
+
+    client = _get_client()
+
+    # Step 1: delete every existing row — raise immediately if this fails
     try:
-        client = _get_client()
-
-        # Step 1: delete every existing row
         client.table("trades").delete().gte("trade_num", 0).execute()
-
-        if df.empty:
-            return
-
-        # Step 2: rename display columns → Supabase column names
-        rows = df.copy().rename(columns=COL_TO_DB)
-
-        # Step 3: keep only columns that exist in our mapping
-        db_cols = list(COL_TO_DB.values())
-        rows = rows[[c for c in db_cols if c in rows.columns]]
-
-        # Step 4: cast numeric columns to proper types (not strings)
-        numeric_cols = [
-            "trade_num", "strike", "entry_price", "exit_price",
-            "lots", "lot_size", "capital_used", "gross_pnl",
-            "brokerage", "stt", "other_charges", "net_pnl",
-            "entry_rsi", "entry_adx",
-        ]
-        for col in numeric_cols:
-            if col in rows.columns:
-                rows[col] = pd.to_numeric(rows[col], errors="coerce")
-
-        # Step 5: replace NaN/None with None for clean JSON
-        rows = rows.where(pd.notnull(rows), None)
-        records = rows.to_dict("records")
-
-        if records:
-            client.table("trades").insert(records).execute()
     except Exception as e:
-        st.error("Could not save trade: {}".format(e))
+        st.error("❌ Supabase DELETE failed: {}\n\n*(If this is an RLS error, ensure RLS policy is enabled in Supabase SQL editor)*".format(e))
+        raise e
+
+    if df.empty:
+        return
+
+    # Step 2: rename display columns → Supabase column names
+    rows = df.copy().rename(columns=COL_TO_DB)
+
+    # Step 3: keep only columns that exist in our mapping
+    db_cols = list(COL_TO_DB.values())
+    rows = rows[[c for c in db_cols if c in rows.columns]]
+
+    # Step 4: cast numeric columns to proper types (not strings)
+    numeric_cols = [
+        "trade_num", "strike", "entry_price", "exit_price",
+        "lots", "lot_size", "capital_used", "gross_pnl",
+        "brokerage", "stt", "other_charges", "net_pnl",
+        "entry_rsi", "entry_adx",
+    ]
+    for col in numeric_cols:
+        if col in rows.columns:
+            rows[col] = pd.to_numeric(rows[col], errors="coerce")
+
+    # Step 5: replace NaN with None for clean JSON
+    rows = rows.where(pd.notnull(rows), None)
+    records = rows.to_dict("records")
+
+    # Step 6: insert rows
+    for i, record in enumerate(records):
+        try:
+            client.table("trades").insert(record).execute()
+        except Exception as e:
+            st.error("❌ Supabase INSERT failed on row {}: {}\n\nRow data: {}\n\n*(If this is an RLS policy error, run the SQL policy in Supabase dashboard)*".format(i + 1, e, record))
+            raise e
 
 
 def add_trade(
