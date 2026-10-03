@@ -339,8 +339,11 @@ elif page == "📓 Log Trade":
             em = "✅ WIN" if saved["Result"]=="WIN" else ("❌ LOSS" if saved["Result"]=="LOSS" else "📂 OPEN")
             new_bal_msg = ""
             if saved["Result"] in ("WIN", "LOSS"):
-                new_bal_msg = " | New Balance: Rs {:,.0f}".format(
-                    cap_stats["current"] + float(saved.get("Net P&L", 0) or 0))
+                try:
+                    net_val = float(saved.get("Net P&L") or 0)
+                    new_bal_msg = " | New Balance: Rs {:,.0f}".format(cap_stats["current"] + net_val)
+                except Exception:
+                    pass
             st.success("Trade #{} saved! {}{}".format(
                 saved["Trade #"], em, new_bal_msg))
             st.rerun()
