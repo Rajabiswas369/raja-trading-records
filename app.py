@@ -31,7 +31,7 @@ st.sidebar.markdown("---")
 
 # Cloud status indicator
 if _is_cloud():
-    st.sidebar.success("☁️ Connected to Google Sheets")
+    st.sidebar.success("☁️ Connected to Cloud Database")
 else:
     st.sidebar.warning("💻 Running locally — data in memory only")
 
