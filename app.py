@@ -489,34 +489,106 @@ elif page == "🔄 Angel One Sync":
     st.title("🔄 Angel One Auto-Sync")
     st.caption("Automatically fetch your executed trades from Angel One — no manual entry needed!")
     st.markdown("---")
-    # Check secrets directly here — most reliable approach
-    _angel_ok = False
-    try:
-        _angel_ok = bool(
-            st.secrets.get("angel_api_key") and
-            st.secrets.get("angel_client_id") and
-            st.secrets.get("angel_mpin")
-        )
-    except Exception:
-        _angel_ok = False
-    if not _angel_ok:
-        st.warning("Angel One API not configured yet.")
-        st.markdown("""
-**To enable auto-sync, add these to your Streamlit Cloud Secrets:**
-```toml
-angel_api_key   = "eLVJlyTE"
-angel_client_id = "R464897"
-angel_mpin      = "0303"
-angel_totp_key  = "LJQ2UJX3ZG56KDZTXKYMMZTLDA"
-```
-Go to **share.streamlit.io → your app → ⋮ → Settings → Secrets**, paste above, click **Save** then **Reboot app**.
-        """)
-    else:
-        render_angel_sync_panel(
-            load_fn=load_trades,
-            save_fn=save_trades,
-            columns=COLUMNS,
-        )
+
+    _api_key   = st.secrets.get("angel_api_key",   "")
+    _client_id = st.secrets.get("angel_client_id", "")
+    _mpin      = st.secrets.get("angel_mpin",      "")
+    _totp      = st.secrets.get("angel_totp_key",  "")
+
+    days_back = st.selectbox("Fetch trades from last:", [1, 2, 3, 7], index=0,
+                              format_func=lambda x: "{} day{}".format(x, "s" if x > 1 else ""))
+
+    if st.button("🔄 Sync Now from Angel One", type="primary", use_container_width=True):
+        if not _api_key or not _client_id or not _mpin:
+            st.error("Angel One credentials not found in secrets. Please check your Streamlit Secrets settings.")
+        else:
+            with st.spinner("Connecting to Angel One..."):
+                try:
+                    import traceback
+                    from SmartApi import SmartConnect
+                    import pyotp
+                    obj = SmartConnect(api_key=_api_key)
+                    totp = pyotp.TOTP(_totp).now() if _totp else _mpin
+                    session = obj.generateSession(_client_id, _mpin, totp)
+                    if not session or session.get("status") is False:
+                        st.error("Login failed: {}".format(session.get("message", "Unknown error")))
+                    else:
+                        st.success("✅ Connected to Angel One!")
+                        trade_book = obj.tradeBook()
+                        raw_trades = trade_book.get("data", []) or [] if trade_book else []
+                        if not raw_trades:
+                            st.info("No trades found today in Angel One.")
+                        else:
+                            st.success("Found {} trades. Saving...".format(len(raw_trades)))
+                            saved, skipped, msg = render_angel_sync_panel(
+                                load_fn=load_trades, save_fn=save_trades, columns=COLUMNS,
+                            ) if False else (0, 0, "")
+                            # Process trades inline
+                            from collections import defaultdict
+                            def _parse(raw):
+                                sym = raw.get("tradingsymbol","")
+                                ot  = raw.get("optiontype","")
+                                if ot=="PE": ot="PUT"
+                                elif ot=="CE": ot="CALL"
+                                else: ot = "CALL" if "CE" in sym else ("PUT" if "PE" in sym else "")
+                                return {
+                                    "raw_symbol": sym, "option_type": ot,
+                                    "strike": str(int(float(raw.get("strikeprice",0) or 0))),
+                                    "qty": int(raw.get("fillsize",0) or 0),
+                                    "price": float(raw.get("fillprice",0) or 0),
+                                    "lot_size": int(raw.get("marketlot",0) or 0) or 65,
+                                    "expiry": raw.get("expirydate",""),
+                                    "order_type": raw.get("transactiontype",""),
+                                    "order_id": raw.get("orderid",""),
+                                }
+                            parsed = [_parse(t) for t in raw_trades]
+                            fo = [t for t in parsed if t["option_type"] in ["CALL","PUT"]]
+                            by_sym = defaultdict(list)
+                            for t in fo: by_sym[t["raw_symbol"]].append(t)
+                            existing = load_trades()
+                            ex_ids = set()
+                            if not existing.empty and "Notes" in existing.columns:
+                                ex_ids = set(existing["Notes"].astype(str).str.extract(r"OrderID:(\w+)")[0].dropna())
+                            rows = []; saved_n = 0
+                            def _nxt(d):
+                                if d.empty or d["Trade #"].isna().all(): return 1
+                                return int(pd.to_numeric(d["Trade #"],errors="coerce").max())+1
+                            for sym, trades in by_sym.items():
+                                buys  = [t for t in trades if t["order_type"]=="BUY"]
+                                sells = [t for t in trades if t["order_type"]=="SELL"]
+                                if not buys: continue
+                                buy = buys[0]; sell = sells[0] if sells else None
+                                if buy["order_id"] in ex_ids: continue
+                                ep = buy["price"]; xp = sell["price"] if sell else 0.0
+                                ls = buy["lot_size"] or 65
+                                lots = max(1, buy["qty"]//ls)
+                                gross = round((xp-ep)*lots*ls,2) if xp>0 else 0.0
+                                stt   = round(xp*lots*ls*0.05/100,2) if xp>0 else 0.0
+                                net   = round(gross-40-stt-15,2) if xp>0 else 0.0
+                                res   = "OPEN" if xp<=0 else ("WIN" if net>=0 else "LOSS")
+                                now   = datetime.now()
+                                row   = {c:"" for c in COLUMNS}
+                                row.update({"Trade #":_nxt(existing)+saved_n,"Date":now.strftime("%Y-%m-%d"),
+                                    "Time":now.strftime("%H:%M"),"Symbol":"NIFTY50","Option Type":buy["option_type"],
+                                    "Strike":int(buy["strike"]) if buy["strike"] else 0,"Expiry":buy["expiry"],
+                                    "Entry Price":ep,"Exit Price":xp if xp>0 else "","Lots":lots,"Lot Size":ls,
+                                    "Capital Used":round(ep*lots*ls,2),"Gross P&L":gross if xp>0 else "",
+                                    "Brokerage":40 if xp>0 else "","STT":stt if xp>0 else "",
+                                    "Other Charges":15 if xp>0 else "","Net P&L":net if xp>0 else "",
+                                    "Result":res,"Notes":"Auto-synced | OrderID:{}".format(buy["order_id"])})
+                                rows.append(row); saved_n+=1
+                            if rows:
+                                new_df = pd.concat([existing, pd.DataFrame(rows)], ignore_index=True)
+                                save_trades(new_df)
+                                st.success("✅ {} trade(s) synced to Google Sheets!".format(saved_n))
+                                st.rerun()
+                            else:
+                                st.info("No new trades to sync (already up to date).")
+                except Exception as e:
+                    st.error("Error: {}".format(str(e)))
+                    import traceback
+                    with st.expander("Details"):
+                        st.code(traceback.format_exc())
 
 elif page == "📋 All Trades":
     st.title("📋 All Trades")
