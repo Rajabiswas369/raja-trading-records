@@ -28,10 +28,11 @@ def _get_angel_credentials():
 def is_angel_configured() -> bool:
     """True if Angel One credentials are in secrets."""
     try:
+        keys = list(st.secrets.keys())
         return (
-            "angel_api_key"   in st.secrets and
-            "angel_client_id" in st.secrets and
-            "angel_mpin"      in st.secrets
+            "angel_api_key"   in keys and
+            "angel_client_id" in keys and
+            "angel_mpin"      in keys
         )
     except Exception:
         return False
