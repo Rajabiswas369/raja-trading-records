@@ -28,12 +28,26 @@ def _get_angel_credentials():
 def is_angel_configured() -> bool:
     """True if Angel One credentials are in secrets."""
     try:
-        keys = list(st.secrets.keys())
-        return (
-            "angel_api_key"   in keys and
-            "angel_client_id" in keys and
-            "angel_mpin"      in keys
-        )
+        # Try multiple access patterns for Streamlit secrets
+        has_key  = False
+        has_id   = False
+        has_mpin = False
+        try:
+            _ = st.secrets["angel_api_key"]
+            has_key = True
+        except Exception:
+            pass
+        try:
+            _ = st.secrets["angel_client_id"]
+            has_id = True
+        except Exception:
+            pass
+        try:
+            _ = st.secrets["angel_mpin"]
+            has_mpin = True
+        except Exception:
+            pass
+        return has_key and has_id and has_mpin
     except Exception:
         return False
 
