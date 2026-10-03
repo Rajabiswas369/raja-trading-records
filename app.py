@@ -489,11 +489,34 @@ elif page == "🔄 Angel One Sync":
     st.title("🔄 Angel One Auto-Sync")
     st.caption("Automatically fetch your executed trades from Angel One — no manual entry needed!")
     st.markdown("---")
-    render_angel_sync_panel(
-        load_fn=load_trades,
-        save_fn=save_trades,
-        columns=COLUMNS,
-    )
+    # Check secrets directly here — most reliable approach
+    _angel_ok = False
+    try:
+        _angel_ok = bool(
+            st.secrets.get("angel_api_key") and
+            st.secrets.get("angel_client_id") and
+            st.secrets.get("angel_mpin")
+        )
+    except Exception:
+        _angel_ok = False
+    if not _angel_ok:
+        st.warning("Angel One API not configured yet.")
+        st.markdown("""
+**To enable auto-sync, add these to your Streamlit Cloud Secrets:**
+```toml
+angel_api_key   = "eLVJlyTE"
+angel_client_id = "R464897"
+angel_mpin      = "0303"
+angel_totp_key  = "LJQ2UJX3ZG56KDZTXKYMMZTLDA"
+```
+Go to **share.streamlit.io → your app → ⋮ → Settings → Secrets**, paste above, click **Save** then **Reboot app**.
+        """)
+    else:
+        render_angel_sync_panel(
+            load_fn=load_trades,
+            save_fn=save_trades,
+            columns=COLUMNS,
+        )
 
 elif page == "📋 All Trades":
     st.title("📋 All Trades")
