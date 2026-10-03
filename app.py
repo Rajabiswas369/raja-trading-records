@@ -269,8 +269,10 @@ page = st.sidebar.radio("📂 Navigate", [
 st.sidebar.markdown("---")
 
 conn_ok = _get_conn() is not None
-st.sidebar.success("☁️ Google Sheets **Connected**") if conn_ok else \
-st.sidebar.warning("⚠️ Sheets not connected — add secrets")
+if conn_ok:
+    st.sidebar.success("☁️ Google Sheets **Connected**")
+else:
+    st.sidebar.warning("⚠️ Sheets not connected — add secrets")
 
 # ═════════════════════════════════════════════════════════════════════════════
 # LOAD DATA
