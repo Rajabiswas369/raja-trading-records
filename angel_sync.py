@@ -1,5 +1,5 @@
 """
-angel_sync.py â€” Angel One SmartAPI auto trade fetcher.
+angel_sync.py — Angel One SmartAPI auto trade fetcher.
 Fetches your executed F&O trades from Angel One and saves to Supabase.
 No static IP needed for trade history fetching.
 """
@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 import traceback
 
 
-# â”€â”€ Angel One connection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Angel One connection ───────────────────────────────────────────────────────
 
 def _get_angel_credentials():
     """Get Angel One credentials from Streamlit secrets (supporting both top-level and [angel] table)."""
@@ -47,12 +47,12 @@ def _login_angel():
     creds = _get_angel_credentials()
     obj   = SmartConnect(api_key=creds["api_key"])
 
-    # Generate TOTP â€” if no key provided, generate a dummy one
+    # Generate TOTP — if no key provided, generate a dummy one
     totp_key = creds.get("totp_key", "")
     if totp_key:
         totp = pyotp.TOTP(totp_key).now()
     else:
-        # Angel One requires TOTP field â€” use MPIN as fallback
+        # Angel One requires TOTP field — use MPIN as fallback
         totp = creds["mpin"]
 
     data = obj.generateSession(
@@ -65,7 +65,7 @@ def _login_angel():
     return obj
 
 
-# â”€â”€ Fetch trades from Angel One â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Fetch trades from Angel One ────────────────────────────────────────────────
 
 def fetch_angel_trades(days_back: int = 1) -> list:
     """
@@ -94,7 +94,7 @@ def _parse_angel_trade(raw: dict) -> dict:
     """
     symbol      = raw.get("tradingsymbol", "")
 
-    # Use direct API fields â€” no guessing needed
+    # Use direct API fields — no guessing needed
     option_type = raw.get("optiontype", "")
     if option_type == "PE":
         option_type = "PUT"
@@ -103,21 +103,21 @@ def _parse_angel_trade(raw: dict) -> dict:
     else:
         option_type = "CALL" if "CE" in symbol else ("PUT" if "PE" in symbol else "")
 
-    # Strike â€” direct field from API
+    # Strike — direct field from API
     strike = str(int(float(raw.get("strikeprice", 0) or 0)))
 
-    # Price â€” fillprice is the actual executed price
+    # Price — fillprice is the actual executed price
     price = float(raw.get("fillprice", 0) or 0)
 
-    # Qty â€” fillsize is the executed quantity
+    # Qty — fillsize is the executed quantity
     qty = int(raw.get("fillsize", 0) or 0)
 
-    # Lot size â€” marketlot is the correct field
+    # Lot size — marketlot is the correct field
     lot_size = int(raw.get("marketlot", 0) or 0)
     if lot_size == 0:
         lot_size = 65  # current NIFTY lot size
 
-    # Expiry â€” direct field from API (format: 06OCT2026)
+    # Expiry — direct field from API (format: 06OCT2026)
     expiry_raw = raw.get("expirydate", "")
     expiry = expiry_raw  # e.g. "06OCT2026"
 
@@ -157,7 +157,7 @@ def match_and_save_trades(raw_trades: list) -> tuple:
     if not fo_trades:
         return 0, 0, "No F&O (CE/PE) trades found today."
 
-    # Group by symbol â€” match BUY and SELL
+    # Group by symbol — match BUY and SELL
     from collections import defaultdict
     by_symbol = defaultdict(list)
     for t in fo_trades:
@@ -208,17 +208,17 @@ def match_and_save_trades(raw_trades: list) -> tuple:
         )
         saved += 1
 
-    msg = "âœ… {} new trade(s) synced from Angel One!".format(saved)
+    msg = "✅ {} new trade(s) synced from Angel One!".format(saved)
     if skipped:
         msg += " ({} already existed or incomplete)".format(skipped)
     return saved, skipped, msg
 
 
-# â”€â”€ Streamlit UI component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Streamlit UI component ─────────────────────────────────────────────────────
 
 def render_angel_sync_panel(*args, **kwargs):
     """Render the Angel One sync panel inside the Streamlit app."""
-    st.subheader("ðŸ”„ Auto-Sync from Angel One")
+    st.subheader("🔄 Auto-Sync from Angel One")
 
     if not is_angel_configured():
         st.warning("Angel One API not configured yet.")
@@ -230,23 +230,23 @@ angel_client_id = "your_client_id"
 angel_mpin      = "your_mpin"
 angel_totp_key  = "your_totp_secret"  (optional)
 ```
-Go to Streamlit Cloud â†’ your app â†’ Settings â†’ Secrets
+Go to Streamlit Cloud → your app → Settings → Secrets
         """)
         return
 
-    st.success("âœ… Angel One API configured!")
+    st.success("✅ Angel One API configured!")
     st.caption("Fetches your executed F&O trades and logs them automatically.")
 
     col1, col2 = st.columns(2)
     days_back = col1.selectbox("Fetch trades from last:", [1, 2, 3, 7], index=0,
                                 format_func=lambda x: "{} day{}".format(x, "s" if x > 1 else ""))
 
-    if col2.button("ðŸ”„ Sync Now", use_container_width=True, type="primary"):
+    if col2.button("🔄 Sync Now", use_container_width=True, type="primary"):
         with st.spinner("Connecting to Angel One..."):
             try:
                 raw    = fetch_angel_trades(days_back=days_back)
                 if raw:
-                    with st.expander("ðŸ” Raw API data (first trade)", expanded=True):
+                    with st.expander("🔍 Raw API data (first trade)", expanded=True):
                         st.json(raw[0])
                 saved, skipped, msg = match_and_save_trades(raw)
                 if saved > 0:
