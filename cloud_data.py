@@ -136,6 +136,21 @@ def add_trade(
     }
     new_df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
     _save_trades(new_df)
+
+    # ── Auto-update capital when trade is closed ───────────────────────────────
+    if result in ("WIN", "LOSS"):
+        cap_df   = load_capital_history()
+        current  = float(cap_df["Balance"].iloc[-1]) if not cap_df.empty else 40000.0
+        new_bal  = round(current + net, 2)
+        note_txt = "Trade #{} {} {} {} | Net P&L: Rs {:,.0f}".format(
+            int(trade_num), result, symbol, option_type, net)
+        cap_row  = pd.DataFrame([{
+            "Date":    now.strftime("%Y-%m-%d"),
+            "Balance": new_bal,
+            "Note":    note_txt,
+        }])
+        _save_capital(pd.concat([cap_df, cap_row], ignore_index=True))
+
     return row
 
 
