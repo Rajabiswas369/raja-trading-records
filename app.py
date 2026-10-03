@@ -278,7 +278,7 @@ if page == "📊 Dashboard":
             fig.update_layout(template="plotly_dark", height=320, title="📈 Equity Curve",
                               xaxis_title="Trade Number", yaxis_title="Cumulative P&L (Rs)",
                               margin=dict(l=0, r=0, t=40, b=0))
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
         with col_right:
             pie = go.Figure(go.Pie(
                 labels=["Wins", "Losses"], values=[stats["wins"], stats["losses"]],
@@ -287,7 +287,7 @@ if page == "📊 Dashboard":
             ))
             pie.update_layout(template="plotly_dark", height=320, title="🏆 Win / Loss Ratio",
                               margin=dict(l=0, r=0, t=40, b=0), showlegend=False)
-            st.plotly_chart(pie, use_container_width=True)
+            st.plotly_chart(pie, width="stretch")
 
         if "Date" in closed_df.columns:
             closed_df["Month"] = pd.to_datetime(closed_df["Date"], errors="coerce").dt.strftime("%b %Y")
@@ -301,13 +301,13 @@ if page == "📊 Dashboard":
             bar_fig.update_layout(template="plotly_dark", height=300, title="📅 Monthly Net P&L",
                                   xaxis_title="Month", yaxis_title="Net P&L (Rs)",
                                   margin=dict(l=0, r=0, t=40, b=0))
-            st.plotly_chart(bar_fig, use_container_width=True)
+            st.plotly_chart(bar_fig, width="stretch")
 
         st.markdown("#### 🕐 Last 5 Trades")
         recent_cols = ["Trade #", "Date", "Symbol", "Option Type", "Strike",
                        "Entry Price", "Exit Price", "Net P&L", "Result"]
         st.dataframe(df[recent_cols].tail(5).sort_index(ascending=False),
-                     use_container_width=True, hide_index=True)
+                     width="stretch", hide_index=True)
     else:
         st.info("No closed trades yet. Go to **📓 Log Trade** to record your first trade!")
 
@@ -380,11 +380,11 @@ elif page == "💰 My Capital":
                               title="💵 Capital Balance Over Time",
                               xaxis_title="Date", yaxis_title="Balance (Rs)",
                               margin=dict(l=0, r=0, t=40, b=0))
-        st.plotly_chart(fig_cap, use_container_width=True)
+        st.plotly_chart(fig_cap, width="stretch")
         st.subheader("📋 Balance History")
         st.dataframe(hist_df[["date","balance","note"]].rename(
             columns={"date":"Date","balance":"Balance (Rs)","note":"Note"}
-        ).sort_values("Date", ascending=False), use_container_width=True, hide_index=True)
+        ).sort_values("Date", ascending=False), width="stretch", hide_index=True)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -427,7 +427,7 @@ elif page == "📓 Log Trade":
         f_brok  = ch1.number_input("Brokerage (Rs)",    value=DEFAULT_BROKERAGE, step=1.0)
         f_other = ch3.number_input("Other Charges (Rs)", value=DEFAULT_OTHER,    step=1.0)
 
-        submitted = st.form_submit_button("💾 Save Trade to Cloud", use_container_width=True)
+        submitted = st.form_submit_button("💾 Save Trade to Cloud", width="stretch")
 
     if submitted:
         if f_entry <= 0:
@@ -495,7 +495,7 @@ elif page == "📋 All Trades":
         if filt_type != "All": view = view[view["Option Type"] == filt_type]
         if filt_res  != "All": view = view[view["Result"]      == filt_res]
         st.caption("{} trades shown".format(len(view)))
-        st.dataframe(view.sort_values("Trade #", ascending=False), use_container_width=True, hide_index=True)
+        st.dataframe(view.sort_values("Trade #", ascending=False), width="stretch", hide_index=True)
         if not view.empty:
             pnl_tot = pd.to_numeric(view["Net P&L"], errors="coerce").sum()
             d, dc   = pnl_delta(pnl_tot)
@@ -564,7 +564,7 @@ Total Capital Used : Rs {cap:,.2f}
         st.dataframe(view[["Trade #","Date","Symbol","Option Type","Strike",
                             "Entry Price","Exit Price","Lots","Capital Used",
                             "Net P&L","Result"]].sort_values("Trade #", ascending=False),
-                     use_container_width=True, hide_index=True)
+                     width="stretch", hide_index=True)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -596,7 +596,7 @@ elif page == "📈 Performance":
                 "Net P&L":   pd.to_numeric(g["Net P&L"], errors="coerce").sum().round(2),
                 "Win Rate %":round((g["Result"] == "WIN").sum() / len(g) * 100, 1),
             })).reset_index()
-            st.dataframe(sg, use_container_width=True, hide_index=True)
+            st.dataframe(sg, width="stretch", hide_index=True)
         with tab_type:
             tg = closed_df.groupby("Option Type").apply(lambda g: pd.Series({
                 "Trades":    len(g),
@@ -604,7 +604,7 @@ elif page == "📈 Performance":
                 "Net P&L":   pd.to_numeric(g["Net P&L"], errors="coerce").sum().round(2),
                 "Win Rate %":round((g["Result"] == "WIN").sum() / len(g) * 100, 1),
             })).reset_index()
-            st.dataframe(tg, use_container_width=True, hide_index=True)
+            st.dataframe(tg, width="stretch", hide_index=True)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -632,7 +632,7 @@ elif page == "💸 Expenses":
         fig_exp.update_layout(template="plotly_dark", height=350,
                               title="Gross P&L vs Charges vs Net P&L",
                               yaxis_title="Amount (Rs)", margin=dict(l=0,r=0,t=40,b=0))
-        st.plotly_chart(fig_exp, use_container_width=True)
+        st.plotly_chart(fig_exp, width="stretch")
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -651,7 +651,7 @@ elif page == "⬇️ Export":
             data=csv_bytes,
             file_name="My_Trades_{}.csv".format(today),
             mime="text/csv",
-            use_container_width=True,
+            width="stretch",
         )
         st.info("Your data is safely stored in Google Sheets ☁️ — no laptop needed!")
 
