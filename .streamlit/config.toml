@@ -2,5 +2,10 @@
 base = "dark"
 primaryColor = "#3498db"
 backgroundColor = "#0e1117"
-secondaryBackgroundColor = "#1e2130"
-textColor = "#ffffff"
+secondaryBackgroundColor = "#1a1c24"
+textColor = "#fafafa"
+
+[server]
+headless = true
+enableCORS = true
+enableXsrfProtection = false
