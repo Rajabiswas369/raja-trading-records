@@ -154,6 +154,42 @@ def add_trade(
     return row
 
 
+def delete_trade(trade_num: int) -> str:
+    """Delete a trade by Trade # and reverse its capital impact. Returns status message."""
+    df = load_trades()
+    mask = pd.to_numeric(df["Trade #"], errors="coerce") == trade_num
+    if not mask.any():
+        return "Trade #{} not found.".format(trade_num)
+
+    trade = df[mask].iloc[0]
+    result = str(trade.get("Result", ""))
+    net    = 0.0
+    try:
+        net = float(trade.get("Net P&L", 0) or 0)
+    except Exception:
+        net = 0.0
+
+    # Remove the trade row
+    new_df = df[~mask].reset_index(drop=True)
+    _save_trades(new_df)
+
+    # Reverse capital impact for closed trades
+    if result in ("WIN", "LOSS") and net != 0.0:
+        cap_df  = load_capital_history()
+        current = float(cap_df["Balance"].iloc[-1]) if not cap_df.empty else 40000.0
+        new_bal = round(current - net, 2)   # subtract what was added (or added back what was lost)
+        cap_row = pd.DataFrame([{
+            "Date":    datetime.now().strftime("%Y-%m-%d"),
+            "Balance": new_bal,
+            "Note":    "Deleted Trade #{} {} | Reversed Net P&L: Rs {:,.0f}".format(
+                trade_num, result, net),
+        }])
+        _save_capital(pd.concat([cap_df, cap_row], ignore_index=True))
+        return "deleted_with_capital"
+
+    return "deleted"
+
+
 # ── Capital ────────────────────────────────────────────────────────────────────
 
 @st.cache_data(ttl=30)
